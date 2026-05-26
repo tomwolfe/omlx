@@ -12,6 +12,7 @@ from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, load_jsonl
+from .multiple_choice import MathQAEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class MathQABenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         valid = item.get("labels", ["A", "B", "C", "D", "E"])
-        return self._extract_mc_answer(response, valid)
+        return MathQAEvaluator.extract_answer(response, valid)
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]

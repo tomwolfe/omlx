@@ -14,6 +14,7 @@ from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, load_jsonl
+from .multiple_choice import WinograndeEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class WinograndeBenchmark(BaseBenchmark):
         return [{"role": "user", "content": "\n".join(parts)}]
 
     def extract_answer(self, response: str, item: dict) -> str:
-        return self._extract_mc_answer(response, ["1", "2"])
+        return WinograndeEvaluator.extract_answer(response, ["1", "2"])
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]

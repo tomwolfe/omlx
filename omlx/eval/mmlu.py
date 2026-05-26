@@ -13,6 +13,7 @@ from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import load_jsonl, stratified_sample
+from .multiple_choice import MMLUEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class MMLUBenchmark(BaseBenchmark):
         return [{"role": "user", "content": "\n".join(parts)}]
 
     def extract_answer(self, response: str, item: dict) -> str:
-        return self._extract_mc_answer(response, ["A", "B", "C", "D"])
+        return MMLUEvaluator.extract_answer(response, ["A", "B", "C", "D"])
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]

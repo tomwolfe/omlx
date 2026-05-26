@@ -301,17 +301,15 @@ def _is_gemma4_attention(attn_obj) -> bool:
 
 
 def _detect_query_extractor(attn_obj) -> Callable:
-    """Auto-detect the appropriate query extractor for the model architecture."""
-    if _uses_gated_q_proj(attn_obj):
-        return _qwen35_extract_queries
-    elif _is_gemma4_attention(attn_obj):
-        return _gemma4_extract_queries
-    elif not hasattr(attn_obj, "rope"):
-        return _nemotron_h_extract_queries
-    elif _uses_non_gated_q_norm(attn_obj):
-        return _qwen36_extract_queries
-    else:
-        return _llama_extract_queries
+    """Auto-detect the appropriate query extractor for the model architecture.
+
+    Uses the Architecture Registry to match ``attn_obj`` against registered
+    architecture strategies in order.  Adding a new model family only
+    requires appending to ``ARCHITECTURE_REGISTRY`` — no core changes.
+    """
+    from .arch_registry import detect_query_extractor
+
+    return detect_query_extractor(attn_obj)
 
 
 # ---------------------------------------------------------------------------

@@ -93,39 +93,15 @@ class BaseBenchmark(ABC):
         """Return a human-readable question text for result export."""
         return item.get("question", item.get("description", item.get("context", "")))
 
-    @staticmethod
-    def _extract_mc_answer(response: str, valid_letters: list[str]) -> str:
-        """Extract multiple choice answer from response.
+    def extract_answer(self, response: str, item: dict) -> str:
+        """Extract the predicted answer from model response text.
 
-        Strategy:
-        1. Look for explicit "answer is X" / "answer: X" patterns (last match)
-        2. Fall back to last valid letter in response
-        3. Case-insensitive
+        Subclasses should override this method with benchmark-specific
+        extraction logic.  The default implementation returns ``response``
+        unchanged — subclasses that use multiple-choice evaluation should
+        use the ``MultipleChoiceEvaluator`` helper instead.
         """
-        response_upper = response.strip().upper()
-        pattern_letters = "".join(valid_letters)
-
-        # 1. Look for "answer is X", "answer: X", "answer X" patterns — use LAST match
-        answer_patterns = re.findall(
-            r"(?:answer\s*(?:is|:)\s*)([" + pattern_letters + r"])\b",
-            response_upper,
-        )
-        if answer_patterns:
-            return answer_patterns[-1]
-
-        # 2. Fall back to last valid letter with word boundary
-        all_matches = re.findall(
-            r"\b([" + pattern_letters + r"])\b",
-            response_upper,
-        )
-        if all_matches:
-            return all_matches[-1]
-
-        # 3. Check first character
-        if response.strip() and response.strip()[0].upper() in valid_letters:
-            return response.strip()[0].upper()
-
-        return ""
+        return response
 
     @staticmethod
     def _extract_last_code_block(response: str) -> str:

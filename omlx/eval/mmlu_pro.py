@@ -12,6 +12,7 @@ from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, stratified_sample, load_jsonl
+from .multiple_choice import MMLUEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class MMLUProBenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         valid = item.get("labels", ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
-        return self._extract_mc_answer(response, valid)
+        return MMLUEvaluator.extract_answer(response, valid)
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]
