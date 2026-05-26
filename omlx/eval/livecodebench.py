@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .base import BaseBenchmark, BenchmarkResult, CodeExecutionBenchmark, QuestionResult
 from .datasets import deterministic_sample, load_jsonl
 
 logger = logging.getLogger(__name__)
@@ -119,11 +119,14 @@ def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
             pass
 
 
-class LiveCodeBenchBenchmark(BaseBenchmark):
+class LiveCodeBenchBenchmark(CodeExecutionBenchmark):
     """LiveCodeBench: code generation with sandboxed execution."""
 
     name = "livecodebench"
     quick_size = 100
+    max_workers = 1  # Sequential execution for safety
+    sandbox_timeout = 30
+    memory_limit_bytes = 256 * 1024 * 1024
 
     async def load_dataset(self, sample_size: int = 0) -> list[dict]:
         """Load LiveCodeBench from bundled data."""
@@ -210,68 +213,49 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
 
         return True
 
-    async def run(
-        self,
-        engine: Any,
-        items: list[dict],
-        on_progress: Optional[Callable[[int, int], Any]] = None,
-        batch_size: int = 1,
-        sampling_kwargs: Optional[dict] = None,
-        enable_thinking: bool = False,
-    ) -> BenchmarkResult:
-        """Override run: generation is batched, code execution is sequential."""
-        results: list[QuestionResult] = []
-        correct = 0
-        start_time = time.time()
-        completed = 0
+    def make_code_item(self, index: int, code: str, item: dict) -> dict:
+        """Build a code-item dict ready for sandbox evaluation."""
+        return {
+            "code": code,
+            "inputs": item["inputs"][:3],
+            "outputs": item["outputs"][:3],
+            "type": "livecodebench",
+        }
 
-        for batch_start in range(0, len(items), batch_size):
-            batch_end = min(batch_start + batch_size, len(items))
-            batch = items[batch_start:batch_end]
-            batch_time = time.time()
+    async def _run_sandbox(self, code_items: list[dict]) -> list[dict]:
+        """Override to use sequential evaluation for safety.
 
-            # Batch the generation phase
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
-            gen_elapsed = time.time() - batch_time
+        Unlike HumanEval and MBPP which use parallel ProcessPoolExecutor,
+        LiveCodeBench requires sequential execution for safety.
+        """
+        results: list[dict] = []
+        for idx, item in enumerate(code_items):
+            code = item["code"]
+            inputs = item.get("inputs", [])
+            outputs = item.get("outputs", [])
 
-            # Code execution is sequential (subprocess safety)
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
+            is_correct = True
+            error_msg = ""
+            for inp, expected_out in zip(inputs, outputs):
+                stdin_input = inp if isinstance(inp, str) else str(inp)
+                expected = expected_out.strip() if isinstance(expected_out, str) else str(expected_out).strip()
 
-                if is_correct:
-                    correct += 1
+                stdout, success, err = _execute_code(code, stdin_input)
+                if not success:
+                    is_correct = False
+                    error_msg = err
+                    break
 
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(test cases)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=response_text,
-                        category=self.get_category(item),
-                    )
-                )
+                actual = stdout.strip()
+                if actual != expected:
+                    is_correct = False
+                    error_msg = err
+                    break
 
-            completed += len(batch)
-            if on_progress:
-                await on_progress(completed, len(items))
-
-        total_time = time.time() - start_time
-        total = len(items)
-
-        return BenchmarkResult(
-            benchmark_name=self.name,
-            accuracy=correct / total if total > 0 else 0.0,
-            total_questions=total,
-            correct_count=correct,
-            time_seconds=total_time,
-            question_results=results,
-            thinking_used=enable_thinking,
-        )
+            results.append({
+                "index": idx,
+                "correct": is_correct,
+                "error": error_msg,
+                "worker_pid": os.getpid(),
+            })
+        return results

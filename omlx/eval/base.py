@@ -7,7 +7,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -327,4 +327,167 @@ class BaseBenchmark(ABC):
             question_results=results,
             category_scores=cat_scores,
             thinking_used=thinking_used,
+        )
+
+
+@runtime_checkable
+class _CodeExtractor(Protocol):
+    """Protocol for code extraction from model responses."""
+
+    def __call__(self, response: str, item: dict) -> str: ...
+
+
+class CodeExecutionBenchmark(BaseBenchmark):
+    """Base class for code-execution benchmarks.
+
+    Subclasses only need to provide prompt formatting, code extraction,
+    dataset loading, and the check_answer logic.  The batched generation,
+    code extraction, sandboxed evaluation, and result rebuilding are
+    handled here to eliminate copy-paste duplication across HumanEval,
+    MBPP, LiveCodeBench, and other code-generation benchmarks.
+    """
+
+    # Subclasses override these to customise behaviour.
+    max_workers: int = 8
+    sandbox_timeout: int = 30
+    memory_limit_bytes: int = 256 * 1024 * 1024  # 256 MB
+
+    # ------------------------------------------------------------------
+    # Public API – subclasses must implement these
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def make_code_item(self, index: int, code: str, item: dict) -> dict:
+        """Build a code-item dict ready for sandbox evaluation.
+
+        The returned dict must contain at least ``"code"`` (str).
+        """
+        ...
+
+    @abstractmethod
+    def extract_answer(self, response: str, item: dict) -> str:
+        """Extract the predicted code from model response text."""
+        ...
+
+    @abstractmethod
+    def check_answer(self, predicted: str, item: dict) -> bool:
+        """Check if the predicted code is correct."""
+        ...
+
+    # ------------------------------------------------------------------
+    # Internal helpers – shared across all code-execution benchmarks
+    # ------------------------------------------------------------------
+
+    async def run(
+        self,
+        engine: Any,
+        items: list[dict],
+        on_progress: Optional[Callable[[int, int], Any]] = None,
+        batch_size: int = 1,
+        sampling_kwargs: Optional[dict] = None,
+        enable_thinking: bool = False,
+    ) -> BenchmarkResult:
+        """Run the benchmark with batched generation and sandboxed evaluation.
+
+        The flow is:
+        1. Generate completions concurrently (batched).
+        2. Extract code from model responses.
+        3. Evaluate each code item in a sandboxed subprocess.
+        4. Rebuild QuestionResult objects from sandbox results.
+        """
+        results: list[QuestionResult] = []
+        correct = 0
+        start_time = time.time()
+        completed = 0
+
+        for batch_start in range(0, len(items), batch_size):
+            batch_end = min(batch_start + batch_size, len(items))
+            batch = items[batch_start:batch_end]
+            batch_time = time.time()
+
+            # --- Generation phase ---
+            gen_tasks = [
+                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
+                for j, item in enumerate(batch)
+            ]
+            gen_results = await asyncio.gather(*gen_tasks, return_exceptions=True)
+
+            # Handle any exceptions from individual batch items
+            for idx, result in enumerate(gen_tasks):
+                if isinstance(result, Exception):
+                    logger.warning(f"Engine error on question {batch_start + idx}: {result}")
+                    gen_results[idx] = (
+                        batch_start + idx,
+                        batch[batch_start + idx],
+                        "",
+                        "",
+                        "",
+                    )
+
+            # --- Code extraction ---
+            code_items: list[dict] = []
+            prompt_texts: list[str] = []
+            raw_responses: list[str] = []
+            for idx, _item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
+                code = self.extract_answer(response_text, _item)
+                code_items.append(self.make_code_item(batch_start + idx, code, _item))
+                prompt_texts.append(prompt_text)
+                raw_responses.append(response_text)
+
+            # --- Sandbox evaluation ---
+            sandbox_results = await self._run_sandbox(code_items)
+
+            # --- Rebuild results ---
+            batch_correct = 0
+            for idx, item, sandbox_result, prompt_text, raw_response in zip(
+                range(len(items)), items, sandbox_results, prompt_texts, raw_responses
+            ):
+                is_correct = sandbox_result.get("correct", False)
+                if is_correct:
+                    batch_correct += 1
+                    correct += 1
+
+                results.append(
+                    QuestionResult(
+                        question_id=str(item.get("id", idx)),
+                        correct=is_correct,
+                        expected=sandbox_result.get("error", "")[:200] if sandbox_result.get("error") else code_items[idx]["code"][:200],
+                        time_seconds=gen_elapsed / max(len(batch), 1),
+                        question_text=prompt_text,
+                        raw_response=raw_response,
+                        category=self.get_category(item),
+                    )
+                )
+
+            completed += len(batch)
+            if on_progress:
+                await on_progress(completed, len(items))
+
+        total_time = time.time() - start_time
+        total = len(items)
+
+        return BenchmarkResult(
+            benchmark_name=self.name,
+            accuracy=correct / total if total > 0 else 0.0,
+            total_questions=total,
+            correct_count=correct,
+            time_seconds=total_time,
+            question_results=results,
+            thinking_used=enable_thinking,
+        )
+
+    async def _run_sandbox(self, code_items: list[dict]) -> list[dict]:
+        """Run sandboxed evaluation for a batch of code items.
+
+        Subclasses may override this to change evaluation strategy
+        (e.g. sequential vs parallel).
+        """
+        from .sandbox_executor import evaluate_batch
+
+        return await evaluate_batch(
+            items=code_items,
+            check_fn=lambda code, test: code == test,
+            max_workers=self.max_workers,
+            code_extractor=None,
+            on_progress=None,
         )

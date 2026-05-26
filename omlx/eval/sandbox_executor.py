@@ -23,6 +23,8 @@ import asyncio
 import logging
 import multiprocessing
 import resource
+import signal
+import sys
 import traceback
 from multiprocessing import get_start_method, set_start_method
 from pathlib import Path
@@ -50,7 +52,9 @@ def _safe_eval_single(
 
     This function runs inside the worker process.  It applies resource
     limits directly (no preexec_fn needed) to ensure memory limits are
-    enforced per-process.
+    enforced per-process.  Network access and dangerous imports are
+    restricted to prevent fork-bombs, OOM crashes, or arbitrary code
+    execution in the evaluator process.
 
     Parameters
     ----------
@@ -76,6 +80,13 @@ def _safe_eval_single(
         resource.setrlimit(resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS + 5, EXEC_TIMEOUT_SECONDS + 5))
     except (ValueError, resource.error):
         pass
+    try:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
+    except (ValueError, resource.error):
+        pass
+
+    # Block dangerous imports at the module level
+    _block_dangerous_imports()
 
     try:
         # Import the check_answer logic here to keep this self-contained
@@ -114,6 +125,32 @@ def _safe_eval_single(
             "error": str(e),
             "worker_pid": multiprocessing.current_process().pid,
         }
+
+
+def _block_dangerous_imports() -> None:
+    """Block dangerous imports in the current process.
+
+    This prevents fork bombs (os.fork), network access (socket), file
+    system abuse (shutil, pathlib.write_text on sensitive paths), and
+    shell execution (subprocess.Popen with shell=True) within the
+    sandboxed evaluation worker.
+    """
+    import builtins
+
+    _DANGEROUS_MODULES = frozenset([
+        "os", "subprocess", "socket", "http", "http.client",
+        "urllib", "urllib.request", "httplib", "http.server",
+        "shutil", "pickle", "pickletools",
+    ])
+
+    _original_import = builtins.__import__
+
+    def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name in _DANGEROUS_MODULES or name.startswith("os."):
+            raise ImportError(f"Blocked dangerous import: {name!r}")
+        return _original_import(name, *args, **kwargs)
+
+    builtins.__import__ = _safe_import
 
 
 async def evaluate_batch(
@@ -193,8 +230,18 @@ async def evaluate_batch(
             for item in chunk
         ]
 
-        chunk_results = await asyncio.gather(*futures)
-        results.extend(chunk_results)
+        chunk_results = await asyncio.gather(*futures, return_exceptions=True)
+        for result in chunk_results:
+            if isinstance(result, Exception):
+                logger.warning(f"Sandbox evaluation failed: {result}")
+                results.append({
+                    "index": -1,
+                    "correct": False,
+                    "error": str(result),
+                    "worker_pid": -1,
+                })
+            else:
+                results.append(result)
 
         if on_progress:
             completed = chunk_start + len(chunk_results)

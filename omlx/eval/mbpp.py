@@ -20,9 +20,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .base import BaseBenchmark, BenchmarkResult, CodeExecutionBenchmark, QuestionResult
 from .datasets import deterministic_sample, load_jsonl
-from .sandbox_executor import evaluate_batch
 
 logger = logging.getLogger(__name__)
 
@@ -108,11 +107,14 @@ def _execute_with_tests(code: str, test_list: list[str], setup_code: str = "") -
             pass
 
 
-class MBPPBenchmark(BaseBenchmark):
+class MBPPBenchmark(CodeExecutionBenchmark):
     """MBPP: code generation with assertion-based test verification."""
 
     name = "mbpp"
     quick_size = 200
+    max_workers = 8
+    sandbox_timeout = 15
+    memory_limit_bytes = 256 * 1024 * 1024
 
     async def load_dataset(self, sample_size: int = 0) -> list[dict]:
         """Load MBPP from bundled data."""
@@ -169,97 +171,11 @@ class MBPPBenchmark(BaseBenchmark):
         )
         return passed
 
-    async def run(
-        self,
-        engine: Any,
-        items: list[dict],
-        on_progress: Optional[Callable[[int, int], Any]] = None,
-        batch_size: int = 1,
-        sampling_kwargs: Optional[dict] = None,
-        enable_thinking: bool = False,
-    ) -> BenchmarkResult:
-        """Override run: generation is batched, code execution uses ProcessPoolExecutor.
-
-        Uses ProcessPoolExecutor-based sandboxed evaluation for parallel code execution.
-        """
-        results: list[QuestionResult] = []
-        correct = 0
-        start_time = time.time()
-        completed = 0
-
-        for batch_start in range(0, len(items), batch_size):
-            batch_end = min(batch_start + batch_size, len(items))
-            batch = items[batch_start:batch_end]
-            batch_time = time.time()
-
-            # Generate completions concurrently
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
-            gen_elapsed = time.time() - batch_time
-
-            # Extract code from responses and run sandboxed evaluation
-            code_items = []
-            prompt_texts = []
-            raw_responses = []
-            for idx, _item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, _item)
-                code_items.append({
-                    "code": code,
-                    "test_list": _item["test_list"],
-                    "test_setup_code": _item.get("test_setup_code", ""),
-                    "type": "mbpp",
-                })
-                prompt_texts.append(prompt_text)
-                raw_responses.append(response_text)
-
-            # Run sandboxed evaluation in parallel using ProcessPoolExecutor
-            sandbox_results = await evaluate_batch(
-                items=code_items,
-                check_fn=lambda code, test: code == test,
-                max_workers=8,
-                code_extractor=None,
-                on_progress=on_progress,
-            )
-
-            # Rebuild results from sandboxed evaluation
-            batch_correct = 0
-            for idx, item, sandbox_result, prompt_text, raw_response in zip(
-                range(len(items)), items, sandbox_results, prompt_texts, raw_responses
-            ):
-                is_correct = sandbox_result["correct"]
-                if is_correct:
-                    batch_correct += 1
-                    correct += 1
-
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(test cases)",
-                        predicted=sandbox_result.get("error", "")[:200] if sandbox_result.get("error") else code_items[idx]["code"][:200],
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=raw_response,
-                        category=self.get_category(item),
-                    )
-                )
-
-            completed += len(batch)
-            if on_progress:
-                await on_progress(completed, len(items))
-
-        total_time = time.time() - start_time
-        total = len(items)
-
-        return BenchmarkResult(
-            benchmark_name=self.name,
-            accuracy=correct / total if total > 0 else 0.0,
-            total_questions=total,
-            correct_count=correct,
-            time_seconds=total_time,
-            question_results=results,
-            thinking_used=enable_thinking,
-        )
+    def make_code_item(self, index: int, code: str, item: dict) -> dict:
+        """Build a code-item dict ready for sandbox evaluation."""
+        return {
+            "code": code,
+            "test_list": item["test_list"],
+            "test_setup_code": item.get("test_setup_code", ""),
+            "type": "mbpp",
+        }
