@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
+from .config_quant import QuantizationConfig
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -350,39 +352,78 @@ class ModuleAwareQuantPolicy:
     """
 
     # Module type name patterns that indicate special quantization handling
-    _MOE_SUBMODULE_NAMES = frozenset([
-        "MOE", "MixtureOfExperts", "sparse_mlp", "gating",
-    ])
-    _VISION_SUBMODULE_NAMES = frozenset([
-        "visual", "vision", "patch_embed", "patch_embeds",
-        "pos_embed", "image_newline", "multi_modal_projector",
-        "visual_merger", "image_norm", "temporal_embed",
-    ])
-    _AUDIO_SUBMODULE_NAMES = frozenset([
-        "audio_tower", "audio_proj", "audio_encoder",
-    ])
-    _SSM_PARAM_NAMES = frozenset([
-        "ssm_alpha", "ssm_beta", "a_log", "time_decay", "time_faaaa",
-    ])
+    _MOE_SUBMODULE_NAMES = frozenset(
+        [
+            "MOE",
+            "MixtureOfExperts",
+            "sparse_mlp",
+            "gating",
+        ]
+    )
+    _VISION_SUBMODULE_NAMES = frozenset(
+        [
+            "visual",
+            "vision",
+            "patch_embed",
+            "patch_embeds",
+            "pos_embed",
+            "image_newline",
+            "multi_modal_projector",
+            "visual_merger",
+            "image_norm",
+            "temporal_embed",
+        ]
+    )
+    _AUDIO_SUBMODULE_NAMES = frozenset(
+        [
+            "audio_tower",
+            "audio_proj",
+            "audio_encoder",
+        ]
+    )
+    _SSM_PARAM_NAMES = frozenset(
+        [
+            "ssm_alpha",
+            "ssm_beta",
+            "a_log",
+            "time_decay",
+            "time_faaaa",
+        ]
+    )
     _DELTA_NET_BIAS_NAMES = frozenset(["dt_bias"])
     _CONV1D_NAMES = frozenset(["conv1d"])
     _SSM_OUTPUT_NAMES = frozenset(["ssm_output", "ssm_out"])
     _LM_HEAD_NAMES = frozenset(["lm_head", "classifier"])
     _CROSS_ATTN_O_PROJ = frozenset(["o_proj"])
-    _KV_Q_PROJ_NAMES = frozenset([
-        "kv_a_proj_with_mqa", "kv_b_proj", "q_a_proj", "q_b_proj",
-    ])
+    _KV_Q_PROJ_NAMES = frozenset(
+        [
+            "kv_a_proj_with_mqa",
+            "kv_b_proj",
+            "q_a_proj",
+            "q_b_proj",
+        ]
+    )
     _MOE_PROJ_NAMES = frozenset(["gate_proj", "up_proj", "down_proj"])
     _V_PROJ_NAMES = frozenset(["v_proj", "v_a_proj", "v_b_proj"])
     _DOWN_PROJ_NAMES = frozenset(["down_proj", "w2", "mlp.fc2", "wo"])
     _QK_PROJ_NAMES = frozenset(["q_proj", "k_proj"])
     _QKV_PROJ_NAMES = frozenset(["qkv_proj", "in_proj_qkv"])
-    _IN_PROJ_NAMES = frozenset([
-        "in_proj_z", "in_proj_a", "in_proj_b", "delta_net",
-    ])
-    _MIXER_PROJ_NAMES = frozenset([
-        "mixer.in_proj", "mixer.out_proj", "x_proj", "dt_proj",
-    ])
+    _IN_PROJ_NAMES = frozenset(
+        [
+            "in_proj_z",
+            "in_proj_a",
+            "in_proj_b",
+            "delta_net",
+        ]
+    )
+    _MIXER_PROJ_NAMES = frozenset(
+        [
+            "mixer.in_proj",
+            "mixer.out_proj",
+            "x_proj",
+            "dt_proj",
+        ]
+    )
 
     @classmethod
     def from_rules(cls, rules: list[QuantRule]) -> ModuleAwareQuantPolicy:
@@ -485,7 +526,9 @@ class ModuleAwareQuantPolicy:
                 child_path = _build_path_from_module(module, name)
                 if path == child_path:
                     # Found exact match via module traversal
-                    results.append(self._tensor_name_rules[0] if self._tensor_name_rules else None)  # type: ignore
+                    results.append(
+                        self._tensor_name_rules[0] if self._tensor_name_rules else None
+                    )  # type: ignore
 
         # Fallback: path-based matching for orphaned tensors
         for rule in self._regex_rules:
@@ -585,10 +628,10 @@ def evaluate_quant_policy(
 
 
 def build_quant_policy_from_config(
-    config: dict,
+    config: QuantizationConfig,
     oq_level: int = 4,
 ) -> ModuleAwareQuantPolicy:
-    """Build a quantization policy from a model config dict.
+    """Build a quantization policy from a quantization config.
 
     This is the main entry point used by the oq streaming quantizer.
     It compiles the config's sensitivity map and boost map into an
@@ -598,8 +641,9 @@ def build_quant_policy_from_config(
     rules = list(DEFAULT_QUANT_POLICY)
 
     # Add sensitivity-driven rules if a sensitivity map exists
-    sens_map = config.get("_oq_sensitivity_map")
+    sens_map = config.sensitivity_map
     if sens_map:
+        base_bits = int(_LEVEL_BITS.get(oq_level, oq_level))
         for layer_idx_str, score in sens_map.items():
             layer_idx = int(layer_idx_str)
             # High-sensitivity layers get extra bits
@@ -615,7 +659,7 @@ def build_quant_policy_from_config(
                     )
                 )
         # Add boost-map entries
-        boost_map = config.get("_oq_boost_map")
+        boost_map = config.boost_map
         if boost_map:
             for path, boost in boost_map.items():
                 bits = boost.get("bits", 4)
