@@ -104,6 +104,18 @@ class BaseBenchmark(ABC):
         return response
 
     @staticmethod
+    def _extract_mc_answer(response: str, options: list[str]) -> str:
+        """Extract the first matching option from model response.
+
+        Searches for the first occurrence of any option (e.g. "A", "B", "C", "D")
+        in the response text and returns it.
+        """
+        for option in options:
+            if option in response:
+                return option
+        return ""
+
+    @staticmethod
     def _extract_last_code_block(response: str) -> str:
         """Extract the LAST code block from model response.
 

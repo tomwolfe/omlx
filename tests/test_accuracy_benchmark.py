@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from omlx.admin.accuracy_benchmark import (
-    VALID_BENCHMARKS,
+    get_valid_benchmark_names,
     AccuracyBenchmarkRequest,
     AccuracyBenchmarkRun,
     _accumulated_results,
@@ -54,11 +54,12 @@ class TestAccuracyBenchmarkRequest:
             )
 
     def test_all_valid_benchmarks(self):
+        valid_names = get_valid_benchmark_names()
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
-            benchmarks={b: 100 for b in VALID_BENCHMARKS},
+            benchmarks={b: 100 for b in valid_names},
         )
-        assert len(req.benchmarks) == len(VALID_BENCHMARKS)
+        assert len(req.benchmarks) == len(valid_names)
 
     def test_enable_thinking_default_false(self):
         req = AccuracyBenchmarkRequest(

@@ -580,28 +580,44 @@ class EnginePool:
             # model families; let VLMBatchedEngine handle MTP-enabled VLMs.
             pass
 
-            # Check if DFlash is enabled — takes priority over engine type
-            # since DFlash has its own model loading pipeline
+            # Check if DFlash is enabled — wraps the base engine with speculative decoding
             engine = None
             if model_settings is not None:
                 dflash_enabled = getattr(model_settings, "dflash_enabled", False)
                 dflash_draft = getattr(model_settings, "dflash_draft_model", None)
                 if dflash_enabled and dflash_draft:
                     try:
-                        from .engine.dflash import DFlashEngine
-                        engine = DFlashEngine(
+                        from .engine.speculative import SpeculativeEngine
+
+                        base = BatchedEngine(
                             model_name=entry.model_path,
+                            scheduler_config=self._scheduler_config,
+                            model_settings=model_settings,
+                        )
+                        engine = SpeculativeEngine(
+                            base_engine=base,
                             draft_model_path=dflash_draft,
                             draft_quant_enabled=getattr(model_settings, "dflash_draft_quant_enabled", False),
                             draft_quant_weight_bits=getattr(model_settings, "dflash_draft_quant_weight_bits", 4),
                             draft_quant_activation_bits=getattr(model_settings, "dflash_draft_quant_activation_bits", 16),
-                            draft_quant_group_size=getattr(model_settings, "dflash_draft_quant_group_size", 64),
+                            draft_quant_group_size=getattr(model_settings, "dflash_quant_group_size", 64),
                             model_settings=model_settings,
                             fallback_engine_type=effective_type,
                             scheduler_config=self._scheduler_config,
                             omlx_ssd_cache_dir=getattr(
                                 self._scheduler_config, "paged_ssd_cache_dir", None
                             ),
+                        )
+                        logger.info(f"Speculative decoding enabled for {model_id}, draft={dflash_draft}")
+                    except ImportError:
+                        logger.warning(
+                            f"Speculative decoding enabled for {model_id} but required dependencies are not installed. "
+                            f"Falling back to default engine."
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Speculative decoding init failed for {model_id}: {e}. "
+                            f"Falling back to default engine."
                         )
                         logger.info(f"DFlash enabled for {model_id}, draft={dflash_draft}")
                     except ImportError:
@@ -657,16 +673,16 @@ class EnginePool:
                         model_settings=model_settings,
                     )
 
-            _is_dflash_engine = engine is not None and type(engine).__name__ == "DFlashEngine"
+            _is_speculative_engine = engine is not None and type(engine).__name__ == "SpeculativeEngine"
 
             try:
                 await engine.start()
             except Exception as start_error:
-                if _is_dflash_engine:
-                    # DFlash engine failed to start — fall back to the
+                if _is_speculative_engine:
+                    # Speculative engine failed to start — fall back to the
                     # model's natural engine type (VLM or Batched)
                     logger.warning(
-                        f"DFlash start failed for {model_id}: {start_error}. "
+                        f"Speculative engine start failed for {model_id}: {start_error}. "
                         f"Falling back to {effective_type} engine."
                     )
                     try:

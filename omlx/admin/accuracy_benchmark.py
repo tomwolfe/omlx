@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Accuracy benchmark execution logic for oMLX admin panel.
-
-Orchestrates MMLU, HellaSwag, TruthfulQA, GSM8K, and LiveCodeBench
-evaluations with real-time progress reporting via SSE events.
+"""Accuracy benchmark execution logic for oMLX admin panel. Orchestrates MMLU, HellaSwag, TruthfulQA, GSM8K, and LiveCodeBench evaluations with real-time progress reporting via SSE events.
 
 Supports server-side queue and persistent result accumulation.
 Results survive browser close and persist until explicitly reset.
@@ -16,6 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator
+
+from .benchmark_registry import (
+    VALID_BENCHMARKS,
+    get_benchmark_registry,
+    get_valid_benchmark_names,
+    validate_benchmarks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +35,6 @@ _queue_running: bool = False
 _current_run_id: Optional[str] = None
 _current_model: Optional[str] = None
 _engine_pool_ref: Any = None
-
-VALID_BENCHMARKS = [
-    "mmlu", "mmlu_pro", "kmmlu", "cmmlu", "jmmlu",
-    "hellaswag", "truthfulqa", "arc_challenge", "winogrande",
-    "gsm8k", "mathqa", "humaneval", "mbpp", "livecodebench",
-    "bbq", "safetybench",
-]
 
 
 class AccuracyBenchmarkRequest(BaseModel):
@@ -61,9 +58,9 @@ class AccuracyBenchmarkRequest(BaseModel):
         if not v:
             raise ValueError("At least one benchmark is required")
         for name, size in v.items():
-            if name not in VALID_BENCHMARKS:
+            if name not in get_valid_benchmark_names():
                 raise ValueError(
-                    f"Invalid benchmark '{name}'. Must be one of {VALID_BENCHMARKS}"
+                    f"Invalid benchmark '{name}'. Must be one of {get_valid_benchmark_names()}"
                 )
             if size < 0:
                 raise ValueError(f"Sample size for '{name}' must be >= 0")

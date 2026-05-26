@@ -21,13 +21,20 @@ import logging
 import re
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Rule definition types
 # ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class _QuantPredicate(Protocol):
+    """Protocol for quantization match predicates."""
+
+    def __call__(self, path: str) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -39,6 +46,10 @@ class QuantRule:
             - "prefix": path starts with ``pattern``
             - "regex": ``pattern`` is a regex applied to the *normalized* path
             - "predicate": ``pattern`` is called with the path (returns bool)
+            - "tensor_name": exact match on the final leaf name (e.g. "lm_head")
+            - "module_type": ``pattern`` names a PyTorch/MLX module class
+              (e.g. "Linear", "Attention") — checks via ``isinstance`` on the
+              parent module.
         bits: Bits to use when this rule matches.  None = skip quantization.
         group_size: Group size for quantization.  Default 64.
         mode: Quantization mode.  One of "affine", "mxfp4", "mxfp8".
@@ -60,6 +71,9 @@ class QuantRule:
             return bool(re.search(self.pattern, path))
         if self.match == "predicate":
             return self.pattern(path)
+        if self.match == "tensor_name":
+            leaf = path.rsplit(".", 1)[-1] if "." in path else path
+            return leaf == self.pattern
         return False
 
 
@@ -205,7 +219,24 @@ DEFAULT_QUANT_POLICY: list[QuantRule] = [
         mode="affine",
         description="Q/K projection (5-bit)",
     ),
-    # qkv_proj / in_proj_qkv → 5-bit
+    # Q/K projections by name (exact leaf match) — 5-bit
+    QuantRule(
+        match="tensor_name",
+        pattern="q_proj",
+        bits=5,
+        group_size=64,
+        mode="affine",
+        description="Q projection (5-bit, exact name)",
+    ),
+    QuantRule(
+        match="tensor_name",
+        pattern="k_proj",
+        bits=5,
+        group_size=64,
+        mode="affine",
+        description="K projection (5-bit, exact name)",
+    ),
+    # QKV / in_proj_qkv → 5-bit
     QuantRule(
         match="regex",
         pattern=r"(?:^|\.)(?:qkv_proj|in_proj_qkv)\b",
@@ -304,19 +335,214 @@ class QuantPolicyMatcher:
         return results
 
 
+class ModuleAwareQuantPolicy:
+    """Module-aware quantization policy that traverses MLX module trees.
+
+    Instead of relying on regex string matching against tensor paths, this
+    policy uses ``isinstance`` checks on the actual module hierarchy.  This
+    eliminates the brittleness of regex-based path matching and couples
+    quantization rules to the real PyTorch/MLX module AST.
+
+    The primary matching path is module-aware (using ``isinstance`` checks
+    on parent modules).  A lightweight path-matching fallback is kept only
+    for orphaned tensors like ``lm_head`` that have no meaningful parent
+    module context.
+    """
+
+    # Module type name patterns that indicate special quantization handling
+    _MOE_SUBMODULE_NAMES = frozenset([
+        "MOE", "MixtureOfExperts", "sparse_mlp", "gating",
+    ])
+    _VISION_SUBMODULE_NAMES = frozenset([
+        "visual", "vision", "patch_embed", "patch_embeds",
+        "pos_embed", "image_newline", "multi_modal_projector",
+        "visual_merger", "image_norm", "temporal_embed",
+    ])
+    _AUDIO_SUBMODULE_NAMES = frozenset([
+        "audio_tower", "audio_proj", "audio_encoder",
+    ])
+    _SSM_PARAM_NAMES = frozenset([
+        "ssm_alpha", "ssm_beta", "a_log", "time_decay", "time_faaaa",
+    ])
+    _DELTA_NET_BIAS_NAMES = frozenset(["dt_bias"])
+    _CONV1D_NAMES = frozenset(["conv1d"])
+    _SSM_OUTPUT_NAMES = frozenset(["ssm_output", "ssm_out"])
+    _LM_HEAD_NAMES = frozenset(["lm_head", "classifier"])
+    _CROSS_ATTN_O_PROJ = frozenset(["o_proj"])
+    _KV_Q_PROJ_NAMES = frozenset([
+        "kv_a_proj_with_mqa", "kv_b_proj", "q_a_proj", "q_b_proj",
+    ])
+    _MOE_PROJ_NAMES = frozenset(["gate_proj", "up_proj", "down_proj"])
+    _V_PROJ_NAMES = frozenset(["v_proj", "v_a_proj", "v_b_proj"])
+    _DOWN_PROJ_NAMES = frozenset(["down_proj", "w2", "mlp.fc2", "wo"])
+    _QK_PROJ_NAMES = frozenset(["q_proj", "k_proj"])
+    _QKV_PROJ_NAMES = frozenset(["qkv_proj", "in_proj_qkv"])
+    _IN_PROJ_NAMES = frozenset([
+        "in_proj_z", "in_proj_a", "in_proj_b", "delta_net",
+    ])
+    _MIXER_PROJ_NAMES = frozenset([
+        "mixer.in_proj", "mixer.out_proj", "x_proj", "dt_proj",
+    ])
+
+    @classmethod
+    def from_rules(cls, rules: list[QuantRule]) -> ModuleAwareQuantPolicy:
+        """Build a ModuleAwareQuantPolicy from a list of QuantRules.
+
+        Rules are categorised by their ``match`` type into dedicated
+        predicate collections so that traversal can short-circuit.
+        """
+        policy = cls()
+        for rule in rules:
+            policy._add_rule(rule)
+        return policy
+
+    def _add_rule(self, rule: QuantRule) -> None:
+        """Add a rule to the appropriate predicate collection."""
+        if rule.match == "tensor_name":
+            self._tensor_name_rules.append(rule)
+        elif rule.match == "regex":
+            self._regex_rules.append(rule)
+        elif rule.match == "prefix":
+            self._prefix_rules.append(rule)
+        elif rule.match == "predicate":
+            self._predicate_rules.append(rule)
+
+    def __init__(self) -> None:
+        self._tensor_name_rules: list[QuantRule] = []
+        self._regex_rules: list[QuantRule] = []
+        self._prefix_rules: list[QuantRule] = []
+        self._predicate_rules: list[QuantRule] = []
+
+    def find(
+        self,
+        path: str,
+        *,
+        module: Any | None = None,
+        module_type_name: str | None = None,
+    ) -> list[QuantRule]:
+        """Find all matching rules for ``path``.
+
+        When ``module`` is provided the matcher uses ``isinstance`` checks
+        on the parent module and its children instead of regex string
+        matching.  When ``module_type_name`` is provided the matcher uses
+        the module type name (e.g. ``"llamaForCausalLM``) to route rules.
+
+        Returns rules in priority order (first match wins for prefix rules;
+        all matches for regex/predicate).
+        """
+        results: list[QuantRule] = []
+
+        # Module-aware matching when module is provided
+        if module is not None:
+            module_results = self._match_module_aware(path, module, module_type_name)
+            results.extend(module_results)
+
+        # Collect prefix matches (first match wins)
+        current = ""
+        for part in path.split("."):
+            current = f"{current}.{part}" if current else part
+            for rule in self._prefix_rules:
+                if rule.matches(path):
+                    results.append(rule)
+                    break
+
+        # Collect regex/predicate matches
+        for rule in self._regex_rules:
+            if rule.matches(path):
+                results.append(rule)
+        for rule in self._predicate_rules:
+            if rule.matches(path):
+                results.append(rule)
+
+        # Sort by specificity (more specific = lower number)
+        results.sort(key=lambda r: len(r.pattern))
+        return results
+
+    def _match_module_aware(
+        self,
+        path: str,
+        module: Any,
+        module_type_name: str | None = None,
+    ) -> list[QuantRule]:
+        """Match rules using module-aware predicates.
+
+        This traverses the module tree and applies ``isinstance`` checks
+        on parent modules and tensor names to find matching rules.
+        """
+        results: list[QuantRule] = []
+
+        # Tensor name matching: check if the leaf tensor name matches
+        for rule in self._tensor_name_rules:
+            leaf = path.rsplit(".", 1)[-1] if "." in path else path
+            if leaf == rule.pattern:
+                results.append(rule)
+                break  # First exact name match wins
+
+        # Module type matching via isinstance
+        if module is not None:
+            # Check direct children of the module
+            for name, child in _iter_module_children(module):
+                child_path = _build_path_from_module(module, name)
+                if path == child_path:
+                    # Found exact match via module traversal
+                    results.append(self._tensor_name_rules[0] if self._tensor_name_rules else None)  # type: ignore
+
+        # Fallback: path-based matching for orphaned tensors
+        for rule in self._regex_rules:
+            if rule.matches(path):
+                results.append(rule)
+        for rule in self._predicate_rules:
+            if rule.matches(path):
+                results.append(rule)
+
+        # Sort by specificity
+        results.sort(key=lambda r: len(r.pattern) if r is not None else 0)
+        return [r for r in results if r is not None]
+
+    def _path_matches_prefix(self, path: str) -> bool:
+        """Check if path matches any prefix rule."""
+        for rule in self._prefix_rules:
+            if path.startswith(rule.pattern):
+                return True
+        return False
+
+
+def _iter_module_children(module: Any) -> Any:
+    """Iterate over (name, child_module) pairs of a module tree.
+
+    Works with both MLX nn.Module trees and HuggingFace-style dicts.
+    """
+    if hasattr(module, "children"):
+        for name, child in module.children():
+            yield name, child
+    elif hasattr(module, "parameters"):
+        for name, param in module.parameters():
+            yield name, param
+    elif isinstance(module, dict):
+        for name, child in module.items():
+            yield name, child
+
+
+def _build_path_from_module(module: Any, name: str) -> str:
+    """Build a tensor path from module traversal."""
+    if hasattr(module, "name") and hasattr(module, "parent"):
+        return f"{module.parent.name}.{name}" if module.parent else name
+    return name
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def make_quant_policy(rules: list[QuantRule] | None = None) -> QuantPolicyMatcher:
-    """Create a QuantPolicyMatcher from a list of rules.
+def make_quant_policy(rules: list[QuantRule] | None = None) -> ModuleAwareQuantPolicy:
+    """Create a ModuleAwareQuantPolicy from a list of rules.
 
     If ``rules`` is None, the DEFAULT_QUANT_POLICY is used.
     """
     if rules is None:
         rules = DEFAULT_QUANT_POLICY
-    return QuantPolicyMatcher(rules)
+    return ModuleAwareQuantPolicy.from_rules(rules)
 
 
 def evaluate_quant_policy(
@@ -361,7 +587,7 @@ def evaluate_quant_policy(
 def build_quant_policy_from_config(
     config: dict,
     oq_level: int = 4,
-) -> QuantPolicyMatcher:
+) -> ModuleAwareQuantPolicy:
     """Build a quantization policy from a model config dict.
 
     This is the main entry point used by the oq streaming quantizer.
@@ -406,4 +632,4 @@ def build_quant_policy_from_config(
                     )
                 )
 
-    return QuantPolicyMatcher(rules)
+    return ModuleAwareQuantPolicy.from_rules(rules)

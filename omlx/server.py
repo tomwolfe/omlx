@@ -2169,7 +2169,7 @@ async def create_chat_completion(
     # as an explicit parameter so the engine never has to re-derive it.
     is_partial = detect_and_strip_partial(messages)
 
-    # Compile grammar for structured output (logit-level enforcement).
+    # Grammar compilation for structured output (logit-level enforcement).
     # Grammar compilation needs the tokenizer, so ensure the engine is loaded.
     response_format = request.response_format
     if request.structured_outputs is not None or response_format:
@@ -2181,11 +2181,6 @@ async def create_chat_completion(
         chat_template_kwargs=merged_ct_kwargs or None,
         reasoning_parser=reasoning_parser,
     )
-    # Fall back to prompt injection when grammar is not compiled
-    if compiled_grammar is None and response_format:
-        json_instruction = build_json_system_prompt(response_format)
-        if json_instruction:
-            messages = _inject_json_instruction(messages, json_instruction)
 
     # Merge MCP tools with user-provided tools
     effective_tools = request.tools
@@ -2640,14 +2635,13 @@ def _compile_grammar_for_request(
             )
         return _compile_bare_grammar(compiler, fmt)
     except Exception as e:
-        if structured_outputs is not None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Grammar compilation error: {e}",
-            )
-        logger.warning("Grammar compilation from response_format failed, "
-                       "falling back to prompt injection: %s", e)
-    return None
+        # Hard fail: structured output requires successful grammar compilation.
+        # No silent fallback — clients relying on strict JSON schemas must
+        # receive a clear 400 Bad Request instead of unexpected prompt injection.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Grammar compilation error: {e}",
+        )
 
 
 # =============================================================================

@@ -24,6 +24,11 @@ try:
 except ImportError:
     HAS_MLX = False
 
+from .benchmark_registry import (
+    VALID_BATCH_SIZES,
+    VALID_PROMPT_LENGTHS,
+)
+
 logger = logging.getLogger(__name__)
 
 # Module-level storage for active benchmark runs

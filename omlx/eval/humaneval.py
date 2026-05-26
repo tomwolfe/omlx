@@ -24,6 +24,7 @@ from typing import Any, Callable, Optional
 
 from .base import BaseBenchmark, BenchmarkResult, QuestionResult
 from .datasets import deterministic_sample, load_jsonl
+from .sandbox_executor import evaluate_batch
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,10 @@ class HumanEvalBenchmark(BaseBenchmark):
         sampling_kwargs: Optional[dict] = None,
         enable_thinking: bool = False,
     ) -> BenchmarkResult:
-        """Override run: generation is batched, code execution is sequential."""
+        """Override run: generation is batched, code execution uses ProcessPoolExecutor.
+
+        Uses ProcessPoolExecutor-based sandboxed evaluation for parallel code execution.
+        """
         results: list[QuestionResult] = []
         correct = 0
         start_time = time.time()
@@ -232,6 +236,7 @@ class HumanEvalBenchmark(BaseBenchmark):
             batch = items[batch_start:batch_end]
             batch_time = time.time()
 
+            # Generate completions concurrently
             gen_tasks = [
                 self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
                 for j, item in enumerate(batch)
@@ -239,11 +244,38 @@ class HumanEvalBenchmark(BaseBenchmark):
             gen_results = await asyncio.gather(*gen_tasks)
             gen_elapsed = time.time() - batch_time
 
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
+            # Extract code from responses and run sandboxed evaluation
+            code_items = []
+            prompt_texts = []
+            raw_responses = []
+            for idx, _item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
+                code = self.extract_answer(response_text, _item)
+                code_items.append({
+                    "code": code,
+                    "test": _item["test"],
+                    "entry_point": _item["entry_point"],
+                    "type": "humaneval",
+                })
+                prompt_texts.append(prompt_text)
+                raw_responses.append(response_text)
 
+            # Run sandboxed evaluation in parallel using ProcessPoolExecutor
+            sandbox_results = await evaluate_batch(
+                items=code_items,
+                check_fn=lambda code, test: code == test,
+                max_workers=8,
+                code_extractor=None,
+                on_progress=on_progress,
+            )
+
+            # Rebuild results from sandboxed evaluation
+            batch_correct = 0
+            for idx, item, sandbox_result, prompt_text, raw_response in zip(
+                range(len(items)), items, sandbox_results, prompt_texts, raw_responses
+            ):
+                is_correct = sandbox_result["correct"]
                 if is_correct:
+                    batch_correct += 1
                     correct += 1
 
                 results.append(
@@ -251,10 +283,10 @@ class HumanEvalBenchmark(BaseBenchmark):
                         question_id=str(item.get("id", idx)),
                         correct=is_correct,
                         expected="(unit tests)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
+                        predicted=sandbox_result.get("error", "")[:200] if sandbox_result.get("error") else code_items[idx]["code"][:200],
                         time_seconds=gen_elapsed / len(batch),
                         question_text=prompt_text,
-                        raw_response=response_text,
+                        raw_response=raw_response,
                         category=self.get_category(item),
                     )
                 )
