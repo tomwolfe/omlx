@@ -488,16 +488,20 @@ class TestCompileGrammarForRequest:
         assert "bad schema" in exc_info.value.detail
 
     def test_compilation_error_returns_none_for_response_format(self):
-        """response_format compilation errors → graceful fallback to None."""
+        """response_format compilation errors raise HTTPException."""
+        from fastapi import HTTPException
+
         compiler = MagicMock()
         compiler.compile_json_schema.side_effect = RuntimeError("bad")
         engine = _make_engine(grammar_compiler=compiler)
 
-        result = self._call(engine, response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "t", "schema": {"type": "object"}},
-        })
-        assert result is None
+        with pytest.raises(HTTPException) as exc_info:
+            self._call(engine, response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "t", "schema": {"type": "object"}},
+            })
+        assert exc_info.value.status_code == 400
+        assert "Grammar compilation error: bad" in exc_info.value.detail
 
 
 # =========================================================================
