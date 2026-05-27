@@ -10,7 +10,6 @@ machine. Mitigations: subprocess with timeout, memory limits via resource
 module, temp file cleanup. Users are warned in the UI before running.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -18,20 +17,16 @@ import re
 import resource
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .constants import EXEC_MEMORY_LIMIT_BYTES_LCB, EXEC_TIMEOUT_SECONDS_LCB
 from .datasets import deterministic_sample, load_jsonl
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
-
-# Execution limits
-EXEC_TIMEOUT_SECONDS = 30
-EXEC_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024  # 256 MB
 
 
 def _extract_code(response: str) -> str:
@@ -69,11 +64,11 @@ def _extract_code(response: str) -> str:
 def _set_resource_limits():
     """Set resource limits for subprocess. Called via preexec_fn."""
     try:
-        resource.setrlimit(resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES, EXEC_MEMORY_LIMIT_BYTES))
+        resource.setrlimit(resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES_LCB, EXEC_MEMORY_LIMIT_BYTES_LCB))
     except (ValueError, resource.error):
         pass
     try:
-        resource.setrlimit(resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS + 5, EXEC_TIMEOUT_SECONDS + 5))
+        resource.setrlimit(resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS_LCB + 5, EXEC_TIMEOUT_SECONDS_LCB + 5))
     except (ValueError, resource.error):
         pass
 
@@ -96,7 +91,7 @@ def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
             input=stdin_input,
             capture_output=True,
             text=True,
-            timeout=EXEC_TIMEOUT_SECONDS,
+            timeout=EXEC_TIMEOUT_SECONDS_LCB,
             preexec_fn=_set_resource_limits,
             env={
                 "PATH": os.environ.get("PATH", "/usr/bin:/usr/local/bin"),
@@ -210,68 +205,6 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
 
         return True
 
-    async def run(
-        self,
-        engine: Any,
-        items: list[dict],
-        on_progress: Optional[Callable[[int, int], Any]] = None,
-        batch_size: int = 1,
-        sampling_kwargs: Optional[dict] = None,
-        enable_thinking: bool = False,
-    ) -> BenchmarkResult:
-        """Override run: generation is batched, code execution is sequential."""
-        results: list[QuestionResult] = []
-        correct = 0
-        start_time = time.time()
-        completed = 0
-
-        for batch_start in range(0, len(items), batch_size):
-            batch_end = min(batch_start + batch_size, len(items))
-            batch = items[batch_start:batch_end]
-            batch_time = time.time()
-
-            # Batch the generation phase
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
-            gen_elapsed = time.time() - batch_time
-
-            # Code execution is sequential (subprocess safety)
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
-
-                if is_correct:
-                    correct += 1
-
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(test cases)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=response_text,
-                        category=self.get_category(item),
-                    )
-                )
-
-            completed += len(batch)
-            if on_progress:
-                await on_progress(completed, len(items))
-
-        total_time = time.time() - start_time
-        total = len(items)
-
-        return BenchmarkResult(
-            benchmark_name=self.name,
-            accuracy=correct / total if total > 0 else 0.0,
-            total_questions=total,
-            correct_count=correct,
-            time_seconds=total_time,
-            question_results=results,
-            thinking_used=enable_thinking,
-        )
+    async def runCode(self, predicted_code: str, item: dict) -> bool:
+        """Execute code and verify against test cases."""
+        return self.check_answer(predicted_code, item)

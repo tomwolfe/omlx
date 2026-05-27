@@ -10,7 +10,6 @@ SECURITY NOTE: This benchmark executes model-generated code on the local
 machine. Mitigations: subprocess with timeout, memory limits, temp file cleanup.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -18,19 +17,16 @@ import re
 import resource
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .constants import EXEC_MEMORY_LIMIT_BYTES, EXEC_TIMEOUT_SECONDS
 from .datasets import deterministic_sample, load_jsonl
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
-
-EXEC_TIMEOUT_SECONDS = 15
-EXEC_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024  # 256 MB
 
 
 def _get_imports(prompt: str) -> str:
@@ -212,66 +208,6 @@ class HumanEvalBenchmark(BaseBenchmark):
         )
         return passed
 
-    async def run(
-        self,
-        engine: Any,
-        items: list[dict],
-        on_progress: Optional[Callable[[int, int], Any]] = None,
-        batch_size: int = 1,
-        sampling_kwargs: Optional[dict] = None,
-        enable_thinking: bool = False,
-    ) -> BenchmarkResult:
-        """Override run: generation is batched, code execution is sequential."""
-        results: list[QuestionResult] = []
-        correct = 0
-        start_time = time.time()
-        completed = 0
-
-        for batch_start in range(0, len(items), batch_size):
-            batch_end = min(batch_start + batch_size, len(items))
-            batch = items[batch_start:batch_end]
-            batch_time = time.time()
-
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
-            gen_elapsed = time.time() - batch_time
-
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
-
-                if is_correct:
-                    correct += 1
-
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(unit tests)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=response_text,
-                        category=self.get_category(item),
-                    )
-                )
-
-            completed += len(batch)
-            if on_progress:
-                await on_progress(completed, len(items))
-
-        total_time = time.time() - start_time
-        total = len(items)
-
-        return BenchmarkResult(
-            benchmark_name=self.name,
-            accuracy=correct / total if total > 0 else 0.0,
-            total_questions=total,
-            correct_count=correct,
-            time_seconds=total_time,
-            question_results=results,
-            thinking_used=enable_thinking,
-        )
+    async def runCode(self, predicted_code: str, item: dict) -> bool:
+        """Execute code and verify against unit test cases."""
+        return self.check_answer(predicted_code, item)

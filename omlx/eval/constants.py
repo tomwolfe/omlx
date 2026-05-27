@@ -59,3 +59,18 @@ class OQLevel:
 
 # Pre-built alias for backward compatibility
 OQ_LEVELS = OQLevel.VALID
+
+# Token budgets for thinking/reasoning models (industry reference: OpenCompass 8K~32K)
+THINKING_MIN_TOKENS = 8192
+THINKING_MAX_TOKENS = 32768
+
+# Execution limits for code benchmarks
+EXEC_TIMEOUT_SECONDS = 15
+EXEC_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024
+
+# LiveCodeBench-specific execution limits
+EXEC_TIMEOUT_SECONDS_LCB = 30
+EXEC_MEMORY_LIMIT_BYTES_LCB = 256 * 1024 * 1024
+
+# Fixed seed for deterministic sampling
+SAMPLE_SEED = 42

@@ -9,13 +9,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from .constants import BenchmarkKey
+from .constants import (
+    BenchmarkKey,
+    EXEC_MEMORY_LIMIT_BYTES,
+    EXEC_TIMEOUT_SECONDS,
+    SAMPLE_SEED,
+    THINKING_MAX_TOKENS,
+    THINKING_MIN_TOKENS,
+)
 
 logger = logging.getLogger(__name__)
-
-# Token budget for thinking/reasoning models (industry reference: OpenCompass 8K~32K)
-THINKING_MIN_TOKENS = 8192
-THINKING_MAX_TOKENS = 32768
 
 
 @dataclass
@@ -82,6 +85,14 @@ class BaseBenchmark(ABC):
     def check_answer(self, predicted: str, item: dict) -> bool:
         """Check if the predicted answer is correct."""
         pass
+
+    async def runCode(self, predicted_code: str, item: dict) -> bool:
+        """Execute code and verify against test cases.
+
+        Subclasses that need code execution should override this method.
+        The default implementation delegates to check_answer for compatibility.
+        """
+        return self.check_answer(predicted_code, item)
 
     def get_max_tokens(self) -> int:
         """Max tokens to generate per question. Override for longer answers."""
@@ -288,7 +299,7 @@ class BaseBenchmark(ABC):
             # Process results in order
             for idx, item, response_text, prompt_text, _raw in sorted(batch_results, key=lambda x: x[0]):
                 predicted = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(predicted, item)
+                is_correct = await self.runCode(predicted, item)
 
                 if is_correct:
                     correct += 1

@@ -42,8 +42,24 @@ from .oq_constants import (
     _gs_for_mode,
     _bits_fn_factory,
 )
+from .oq_policies import get_policy_for_model
 
 logger = logging.getLogger(__name__)
+
+
+def _bits_for_level(oq_level: int, bits: int) -> dict:
+    """Return a quantization override dict for the given bits and level.
+
+    The effective bits are clamped to at least ``base_bits`` to prevent
+    under-quantisation of protected paths.
+    """
+    effective = int(max(bits, _LEVEL_BITS.get(oq_level, oq_level)))
+    return {
+        "bits": effective,
+        "group_size": _OQ_DEFAULT_GROUP_SIZE,
+        "mode": _mode_for_bits(effective),
+    }
+
 
 # Auto-built proxy for sensitivity measurement when the source model
 # exceeds available RAM. Uniform 4-bit affine quant — same shape as a
@@ -90,6 +106,7 @@ def universal_quant_predicate(
         True to use default bits,
         dict with {"bits": N, "group_size": M} for per-layer override.
     """
+    # Pre-checks that apply before policy evaluation
     path = _normalize_quant_path(path)
     path_l = path.lower()
 
@@ -97,185 +114,66 @@ def universal_quant_predicate(
     if path in non_quantizable:
         return False
 
-    tc = config.get("text_config", {})
-    num_layers = config.get("num_hidden_layers") or tc.get("num_hidden_layers", 32)
-    num_experts = (
-        config.get("num_local_experts")
-        or tc.get("num_local_experts")
-        or config.get("num_experts")
-        or tc.get("num_experts", 0)
-        or 0
-    )
-    hidden_size = config.get("hidden_size") or tc.get("hidden_size", 0)
-    is_moe = num_experts > 0
-
-    base_bits = int(_LEVEL_BITS.get(oq_level, oq_level))
-    protection = _LEVEL_PROTECTION.get(oq_level, "full")
-    full_protection = protection == "full"
-
-    def gs():
-        if _is_moe_router(path):
-            return 64
-        if num_experts >= 150:
-            return 128
-        return 64
-
-    def bits(n):
-        effective = int(max(n, base_bits))
-        return {
-            "bits": effective,
-            "group_size": _gs_for_mode(effective, gs()),
-            "mode": _mode_for_bits(effective),
-        }
-
+    # MoE router paths stay fp16 (some models lack to_quantized)
     if _is_moe_router(path):
-        return False  # fp16 — tiny weights, some models (MoEGate) lack to_quantized()
+        return False
 
+    # Shared expert gate stays fp16
     if "shared_expert_gate" in path and "gate_proj" not in path:
         return {"bits": 8, "group_size": 64, "mode": "affine"}
 
+    # Vision and audio encoder tensors stay fp16
     if _is_vision_tensor(path):
         return False
-
     if _is_audio_tensor(path):
         return False
 
-    if any(
-        p in path_l
-        for p in ("ssm_alpha", "ssm_beta", "a_log", "time_decay", "time_faaaa")
-    ):
+    # SSM-sensitive parameters stay fp16
+    if any(p in path_l for p in ("ssm_alpha", "ssm_beta", "a_log", "time_decay", "time_faaaa")):
         return False
-
     if path.endswith(".D"):
         return False
 
-    # Gated DeltaNet / Mamba-like SSM sensitive params (Qwen3_5 hybrid arch).
-    # dt_bias drives the discretization step, keep fp16/fp32 like A_log.
-    # conv1d is a small depth-wise causal conv, very sensitive to low bits.
-    # linear_attn.out_proj mirrors self_attn.o_proj sensitivity.
+    # Qwen3_5 hybrid: dt_bias drives discretization step
     if path_l.endswith("dt_bias"):
         return False
     if "conv1d" in path_l and "linear_attn" in path_l:
-        return bits(8)
+        return _bits_for_level(oq_level, 8)
     if "linear_attn.out_proj" in path_l:
-        return bits(5)
+        return _bits_for_level(oq_level, 5)
 
     boost_map = config.get("_oq_boost_map") or {}
     if path in boost_map:
         return dict(boost_map[path])
 
+    # Budget plan overrides (checked before policy to handle budget-specific rules)
     if config.get("_oq_use_budget_plan"):
         if any(p in path for p in ("ssm_output", "ssm_out")):
-            return bits(8)
+            return _bits_for_level(oq_level, 8)
         if "lora.2" in path:
-            return bits(8)
+            return _bits_for_level(oq_level, 8)
         return True
 
-    if not full_protection:
-        if any(p in path for p in ("lm_head", "output.weight", "classifier")):
-            return bits(6)
+    # Delegate to the policy registry for quantization decisions
+    policy = get_policy_for_model(
+        config.get("model_type"),
+        config,
+    )
+    return policy.evaluate(path, config, oq_level, None)
 
-        if any(p in path for p in ("ssm_output", "ssm_out")):
-            return bits(8)
 
-        if any(p in path for p in ("embed_tokens", "wte", "word_embeddings")):
-            return bits(base_bits + 2)
+def _bits_for_level(oq_level: int, bits: int, base_bits: int = 0) -> dict:
+    """Return a quantization override dict for the given bits and level.
 
-        if num_experts >= 512 and hidden_size >= 4096:
-            if "gate_proj" in path and "shared_expert" not in path:
-                return bits(4)
-
-        layer_idx = _extract_layer_index(path)
-        if layer_idx >= 0:
-            sensitive = (
-                layer_idx < num_layers // 8
-                or layer_idx >= 7 * num_layers // 8
-            )
-            is_expert = "switch_mlp" in path or "experts" in path
-            if sensitive and not is_expert:
-                return bits(base_bits + 1)
-
-        return True
-
-    if any(p in path for p in ("ssm_output", "ssm_out")):
-        return bits(8)
-
-    if "lora.2" in path:
-        return bits(8)
-
-    if any(p in path for p in ("lm_head", "output.weight", "classifier")):
-        return bits(6)
-
-    if "cross_attn" in path and "o_proj" in path:
-        return bits(6)
-
-    if any(
-        p in path
-        for p in ("kv_a_proj_with_mqa", "kv_b_proj", "q_a_proj", "q_b_proj")
-    ):
-        return bits(6)
-
-    if "o_proj" in path and "shared_expert" not in path:
-        if not is_moe:
-            return bits(5)
-
-    if "shared_expert" in path and not path.endswith("shared_expert_gate"):
-        return bits(8)
-
-    if num_experts >= 512 and hidden_size >= 4096:
-        if "gate_proj" in path and "shared_expert" not in path:
-            return bits(4)
-        if "down_proj" in path and "shared_expert" not in path:
-            return bits(3)
-
-    layer_idx = _extract_layer_index(path)
-
-    sensitivity_map = config.get("_oq_sensitivity_map")
-    if sensitivity_map and layer_idx >= 0:
-        scores = list(sensitivity_map.values())
-        scores.sort(reverse=True)
-        threshold = scores[max(0, len(scores) // 4 - 1)] if scores else 0
-        sensitive = sensitivity_map.get(str(layer_idx), 0) >= threshold
-    else:
-        sensitive = layer_idx >= 0 and (
-            layer_idx < num_layers // 8
-            or layer_idx >= 7 * num_layers // 8
-        )
-
-    if any(p in path for p in ("v_proj", "v_a_proj", "v_b_proj")):
-        if sensitive:
-            return bits(6)
-        return True
-
-    if any(p in path for p in ("down_proj", "w2", "mlp.fc2", "wo")):
-        is_routed_expert = is_moe and "shared_expert" not in path and (
-            "switch_mlp" in path or "experts" in path
-        )
-        if is_routed_expert:
-            if oq_level == 3.5:
-                return bits(4)
-            return True
-        if sensitive:
-            return bits(6)
-        return bits(5)
-
-    if any(p in path for p in ("q_proj", "k_proj")):
-        if sensitive:
-            return bits(5)
-
-    if any(p in path for p in ("qkv_proj", "in_proj_qkv", "attn_qkv")):
-        if sensitive:
-            return bits(5)
-
-    if any(p in path for p in ("in_proj_z", "in_proj_a", "in_proj_b", "delta_net")):
-        return bits(5)
-
-    if any(
-        p in path for p in ("mixer.in_proj", "mixer.out_proj", "x_proj", "dt_proj")
-    ):
-        return bits(5)
-
-    return True
+    The effective bits are clamped to at least ``base_bits`` to prevent
+    under-quantisation of protected paths.
+    """
+    effective = int(max(bits, base_bits))
+    return {
+        "bits": effective,
+        "group_size": _OQ_DEFAULT_GROUP_SIZE,
+        "mode": _mode_for_bits(effective),
+    }
 
 
 def _is_vision_tensor(name: str) -> bool:
