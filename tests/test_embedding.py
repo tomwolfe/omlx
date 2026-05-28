@@ -5,11 +5,14 @@ import asyncio
 import base64
 import json
 import math
-import struct
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
 import numpy as np
+import struct
+import tempfile
+import threading
+import time
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from omlx.api.embedding_models import (
@@ -363,7 +366,6 @@ class TestExtractEmbeddingsArray:
     def test_extract_text_embeds(self):
         """Test extraction from text_embeds field."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -378,7 +380,6 @@ class TestExtractEmbeddingsArray:
     def test_extract_pooler_output(self):
         """Test extraction from pooler_output when text_embeds is absent."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -392,7 +393,6 @@ class TestExtractEmbeddingsArray:
     def test_extract_last_hidden_state_mean_pool(self):
         """Test mean pooling fallback from last_hidden_state."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -416,7 +416,6 @@ class TestExtractEmbeddingsArray:
     def test_extract_text_embeds_3d_mean_pool(self):
         """Per-token text_embeds (e.g. ModernBERT MaskedLM) should be mean pooled."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -434,7 +433,6 @@ class TestExtractEmbeddingsArray:
     def test_extract_pooler_output_3d_mean_pool(self):
         """Per-token pooler_output should also be mean pooled to 2D."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -453,7 +451,6 @@ class TestEmbeddingCompileFallback:
     def test_compiled_path_fallback_on_failure(self):
         """Test that embed() falls back to eager when compiled path raises."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         class StandardTokenizer:
@@ -488,7 +485,6 @@ class TestEmbeddingCompileFallback:
     def test_is_compiled_false_uses_eager_path(self):
         """Test that embed() uses eager path when _is_compiled is False."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -511,7 +507,6 @@ class TestEmbeddingCompileFallback:
     def test_custom_processor_compiled_path_uses_prepare_embedding_inputs(self):
         """Custom embedding processors should use their own prepare API."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -541,7 +536,6 @@ class TestEmbeddingCompileFallback:
     def test_custom_processor_eager_path_bypasses_generate(self):
         """Custom embedding processors should bypass mlx_embeddings.generate()."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -577,7 +571,6 @@ class TestEmbeddingCompileFallback:
     def test_custom_processor_eager_path_remaps_input_ids_for_inputs_signature(self):
         """Models that accept `inputs` instead of `input_ids` should still work."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         class InputsOnlyModel:
@@ -616,7 +609,6 @@ class TestEmbeddingCompileFallback:
     def test_custom_processor_receives_image_items_unchanged(self):
         """Custom processors should receive raw image strings unchanged."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -657,7 +649,6 @@ class TestEmbeddingCompileFallback:
     def test_custom_processor_counts_image_only_tokens_from_prepared_inputs(self):
         """Image-only custom processor inputs should contribute to usage stats."""
         import mlx.core as mx
-
         from omlx.models.embedding import MLXEmbeddingModel
 
         model = MLXEmbeddingModel("test-model")
@@ -705,7 +696,6 @@ class TestEmbeddingEngine:
     def test_engine_lifecycle(self):
         """Test engine start and stop lifecycle."""
         import asyncio
-
         from omlx.engine.embedding import EmbeddingEngine
 
         engine = EmbeddingEngine("test-model")
@@ -726,7 +716,6 @@ class TestEmbeddingEngine:
     def test_engine_embed(self):
         """Test embedding generation through engine."""
         import asyncio
-
         from omlx.engine.embedding import EmbeddingEngine
         from omlx.models.embedding import EmbeddingOutput
 
@@ -751,7 +740,6 @@ class TestEmbeddingEngine:
     def test_engine_not_started_raises_error(self):
         """Test that embed raises error if engine not started."""
         import asyncio
-
         from omlx.engine.embedding import EmbeddingEngine
 
         engine = EmbeddingEngine("test-model")
@@ -768,6 +756,41 @@ class TestEmbeddingEngine:
         stats = engine.get_stats()
         assert stats["model_name"] == "test-model"
         assert stats["loaded"] is False
+
+    def test_engine_uses_scheduler_embedding_batch_size(self):
+        """Embedding chunk size should follow shared scheduler config."""
+        from omlx.engine.embedding import EmbeddingEngine
+        from omlx.scheduler import SchedulerConfig
+
+        engine = EmbeddingEngine(
+            "test-model",
+            scheduler_config=SchedulerConfig(
+                completion_batch_size=6,
+                embedding_batch_size=4,
+            ),
+        )
+
+        assert engine.get_stats()["batch_size"] == 4
+
+    def test_engine_ignores_scheduler_completion_batch_size(self):
+        """Completion batching should not affect embedding forward chunks."""
+        from omlx.engine.embedding import EmbeddingEngine
+        from omlx.scheduler import SchedulerConfig
+
+        engine = EmbeddingEngine(
+            "test-model",
+            scheduler_config=SchedulerConfig(completion_batch_size=6),
+        )
+
+        assert engine.get_stats()["batch_size"] == 32
+
+    def test_engine_preserves_positional_batch_size_argument(self):
+        """Keep EmbeddingEngine(model, trust_remote_code, batch_size) working."""
+        from omlx.engine.embedding import EmbeddingEngine
+
+        engine = EmbeddingEngine("test-model", False, 3)
+
+        assert engine.get_stats()["batch_size"] == 3
 
     def test_engine_get_model_info_not_loaded(self):
         """Test get_model_info when model is not loaded."""
@@ -792,7 +815,6 @@ class TestEmbeddingEngine:
     def test_engine_properties(self):
         """Test engine property accessors."""
         import asyncio
-
         from omlx.engine.embedding import EmbeddingEngine
 
         engine = EmbeddingEngine("test-model")
@@ -817,10 +839,8 @@ class TestEmbeddingEngine:
         """Metal cache should be cleared after every embed request (#684)."""
         engine = EmbeddingEngine("test-model")
 
-        with (
-            patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel,
-            patch("omlx.engine.base.mx") as mock_mx,
-        ):
+        with patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel, \
+             patch("omlx.engine.embedding.mx") as mock_mx:
             mock_model = MagicMock()
             mock_model.embed.return_value = EmbeddingOutput(
                 embeddings=[[0.1, 0.2]],
@@ -845,10 +865,8 @@ class TestEmbeddingEngine:
         engine = EmbeddingEngine("test-model")
         concurrency = 4
 
-        with (
-            patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel,
-            patch("omlx.engine.base.mx") as mock_mx,
-        ):
+        with patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel, \
+             patch("omlx.engine.embedding.mx") as mock_mx:
             mock_model = MagicMock()
             mock_model.embed.return_value = EmbeddingOutput(
                 embeddings=[[0.1, 0.2]],
@@ -867,6 +885,114 @@ class TestEmbeddingEngine:
 
             assert mock_mx.synchronize.call_count == concurrency
             assert mock_mx.clear_cache.call_count == concurrency
+
+    def test_engine_chunks_large_embedding_requests_and_clears_each_chunk(self):
+        """Large embedding requests should not hold the whole batch in MLX memory."""
+        engine = EmbeddingEngine("test-model", batch_size=2)
+
+        def embed_side_effect(inputs, **kwargs):
+            return EmbeddingOutput(
+                embeddings=[[float(text.rsplit("-", 1)[-1])] for text in inputs],
+                total_tokens=len(inputs),
+                dimensions=1,
+            )
+
+        with patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel, \
+             patch("omlx.engine.embedding.mx") as mock_mx:
+            mock_model = MagicMock()
+            mock_model.embed.side_effect = embed_side_effect
+            MockModel.return_value = mock_model
+
+            asyncio.run(engine.start())
+            result = asyncio.run(
+                engine.embed([f"text-{i}" for i in range(5)])
+            )
+
+            assert result.embeddings == [[0.0], [1.0], [2.0], [3.0], [4.0]]
+            assert result.total_tokens == 5
+            assert result.dimensions == 1
+            assert [
+                call.kwargs["inputs"] for call in mock_model.embed.call_args_list
+            ] == [
+                ["text-0", "text-1"],
+                ["text-2", "text-3"],
+                ["text-4"],
+            ]
+            assert mock_mx.synchronize.call_count == 3
+            assert mock_mx.clear_cache.call_count == 3
+
+    def test_engine_snapshots_batch_size_per_request(self):
+        """Live batch-size updates must not skip or duplicate active request inputs."""
+        engine = EmbeddingEngine("test-model", batch_size=2)
+        observed_batches = []
+
+        def embed_side_effect(inputs, **kwargs):
+            observed_batches.append(list(inputs))
+            if len(observed_batches) == 1:
+                engine._batch_size = 1
+            return EmbeddingOutput(
+                embeddings=[[float(text.rsplit("-", 1)[-1])] for text in inputs],
+                total_tokens=len(inputs),
+                dimensions=1,
+            )
+
+        with patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel, \
+             patch("omlx.engine.embedding.mx"):
+            mock_model = MagicMock()
+            mock_model.embed.side_effect = embed_side_effect
+            MockModel.return_value = mock_model
+
+            asyncio.run(engine.start())
+            result = asyncio.run(
+                engine.embed([f"text-{i}" for i in range(5)])
+            )
+
+            assert result.embeddings == [[0.0], [1.0], [2.0], [3.0], [4.0]]
+            assert observed_batches == [
+                ["text-0", "text-1"],
+                ["text-2", "text-3"],
+                ["text-4"],
+            ]
+
+    def test_concurrent_large_embedding_requests_interleave_between_chunks(self):
+        """One large embedding request should not monopolize the MLX executor."""
+        engine = EmbeddingEngine("test-model", batch_size=2)
+        observed_chunks = []
+        observed_lock = threading.Lock()
+
+        def embed_side_effect(inputs, **kwargs):
+            time.sleep(0.01)
+            with observed_lock:
+                observed_chunks.append(tuple(inputs))
+            return EmbeddingOutput(
+                embeddings=[[float(text.rsplit("-", 1)[-1])] for text in inputs],
+                total_tokens=len(inputs),
+                dimensions=1,
+            )
+
+        with patch("omlx.engine.embedding.MLXEmbeddingModel") as MockModel, \
+             patch("omlx.engine.embedding.mx"):
+            mock_model = MagicMock()
+            mock_model.embed.side_effect = embed_side_effect
+            MockModel.return_value = mock_model
+
+            async def run_concurrent():
+                await engine.start()
+                return await asyncio.gather(
+                    engine.embed([f"a-{i}" for i in range(4)]),
+                    engine.embed([f"b-{i}" for i in range(4)]),
+                )
+
+            first, second = asyncio.run(run_concurrent())
+
+            assert [row[0] for row in first.embeddings] == [0.0, 1.0, 2.0, 3.0]
+            assert [row[0] for row in second.embeddings] == [0.0, 1.0, 2.0, 3.0]
+            assert observed_chunks == [
+                ("a-0", "a-1"),
+                ("b-0", "b-1"),
+                ("a-2", "a-3"),
+                ("b-2", "b-3"),
+            ]
 
 
 class TestEmbeddingModelsPydantic:
@@ -888,7 +1014,9 @@ class TestEmbeddingModelsPydantic:
     def test_embedding_response_defaults(self):
         """Test EmbeddingResponse default values."""
         response = EmbeddingResponse(
-            data=[], model="test", usage=EmbeddingUsage(prompt_tokens=0, total_tokens=0)
+            data=[],
+            model="test",
+            usage=EmbeddingUsage(prompt_tokens=0, total_tokens=0)
         )
 
         assert response.object == "list"
@@ -928,7 +1056,6 @@ class TestEmbeddingIntegration:
         Skip if mlx-embeddings is not installed.
         """
         import asyncio
-
         pytest.importorskip("mlx_embeddings")
 
         from omlx.engine.embedding import EmbeddingEngine
@@ -969,9 +1096,7 @@ class TestNativeEmbeddingLoading:
             self.vocab_size = max(vocab_size, 16)
 
         def encode(self, text: str, add_special_tokens: bool = True):
-            tokens = [
-                abs(hash(token)) % (self.vocab_size - 3) + 3 for token in text.split()
-            ]
+            tokens = [abs(hash(token)) % (self.vocab_size - 3) + 3 for token in text.split()]
             if add_special_tokens:
                 return [101, *tokens, 102]
             return tokens
@@ -986,10 +1111,7 @@ class TestNativeEmbeddingLoading:
             return_tensors="np",
         ):
             del truncation, return_tensors
-            encoded = [
-                self.encode(text, add_special_tokens=True)[:max_length]
-                for text in texts
-            ]
+            encoded = [self.encode(text, add_special_tokens=True)[:max_length] for text in texts]
             target_len = max(len(ids) for ids in encoded) if padding and encoded else 0
             input_ids = []
             attention_mask = []
@@ -1002,21 +1124,17 @@ class TestNativeEmbeddingLoading:
     def _write_full_native_checkpoint(self, tmp_path, config):
         """Write a complete native checkpoint for a small embedding model."""
         from mlx.utils import tree_flatten
-        from safetensors.numpy import save_file
-
         from omlx.models.xlm_roberta import Model, ModelArgs
+        from safetensors.numpy import save_file
 
         model_config = ModelArgs(**config)
         model = Model(model_config)
-        weights = {
-            name: np.array(value) for name, value in tree_flatten(model.parameters())
-        }
+        weights = {name: np.array(value) for name, value in tree_flatten(model.parameters())}
         save_file(weights, str(tmp_path / "model.safetensors"))
 
     def test_load_native_bert_model(self, tmp_path):
         """Test native loading of BERT embedding model."""
         import sys
-
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from safetensors.numpy import save_file
 
@@ -1046,20 +1164,16 @@ class TestNativeEmbeddingLoading:
 
         model = MLXEmbeddingModel(str(tmp_path))
         tokenizer = self.MockNativeTokenizer(vocab_size=vocab_size)
-        with (
-            patch(
-                "transformers.AutoTokenizer.from_pretrained",
-                return_value=tokenizer,
-            ) as mock_from_pretrained,
-            patch(
-                "omlx.models.embedding.MLXEmbeddingModel._validate_native_weights",
-                return_value=None,
-            ) as mock_validate_weights,
-            patch(
-                "omlx.models.xlm_roberta.Model.load_weights",
-                return_value=None,
-            ) as mock_load_weights,
-        ):
+        with patch(
+            "transformers.AutoTokenizer.from_pretrained",
+            return_value=tokenizer,
+        ) as mock_from_pretrained, patch(
+            "omlx.models.embedding.MLXEmbeddingModel._validate_native_weights",
+            return_value=None,
+        ) as mock_validate_weights, patch(
+            "omlx.models.xlm_roberta.Model.load_weights",
+            return_value=None,
+        ) as mock_load_weights:
             result = model._load_native()
 
         assert result is True
@@ -1072,7 +1186,6 @@ class TestNativeEmbeddingLoading:
     def test_load_native_xlm_roberta_model(self, tmp_path):
         """Test native loading of XLMRoBERTa embedding model."""
         import sys
-
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from safetensors.numpy import save_file
 
@@ -1101,20 +1214,16 @@ class TestNativeEmbeddingLoading:
 
         model = MLXEmbeddingModel(str(tmp_path))
         tokenizer = self.MockNativeTokenizer(vocab_size=vocab_size)
-        with (
-            patch(
-                "transformers.AutoTokenizer.from_pretrained",
-                return_value=tokenizer,
-            ) as mock_from_pretrained,
-            patch(
-                "omlx.models.embedding.MLXEmbeddingModel._validate_native_weights",
-                return_value=None,
-            ) as mock_validate_weights,
-            patch(
-                "omlx.models.xlm_roberta.Model.load_weights",
-                return_value=None,
-            ) as mock_load_weights,
-        ):
+        with patch(
+            "transformers.AutoTokenizer.from_pretrained",
+            return_value=tokenizer,
+        ) as mock_from_pretrained, patch(
+            "omlx.models.embedding.MLXEmbeddingModel._validate_native_weights",
+            return_value=None,
+        ) as mock_validate_weights, patch(
+            "omlx.models.xlm_roberta.Model.load_weights",
+            return_value=None,
+        ) as mock_load_weights:
             result = model._load_native()
 
         assert result is True
@@ -1144,11 +1253,7 @@ class TestNativeEmbeddingLoading:
         (tmp_path / "config.json").write_text(json.dumps(config))
 
         save_file(
-            {
-                "embeddings.word_embeddings.weight": np.random.randn(30522, 384).astype(
-                    np.float32
-                )
-            },
+            {"embeddings.word_embeddings.weight": np.random.randn(30522, 384).astype(np.float32)},
             str(tmp_path / "model.safetensors"),
         )
 
@@ -1186,16 +1291,17 @@ class TestNativeEmbeddingLoading:
 
         self._write_full_native_checkpoint(tmp_path, config)
 
+        import mlx.core as mx
         from safetensors import safe_open
 
         weights = {}
         with safe_open(tmp_path / "model.safetensors", framework="mlx") as f:
-            for key in f:
+            for key in f.keys():
                 weights[key] = np.array(f.get_tensor(key))
 
-        weights["embeddings.word_embeddings.weight"] = np.random.randn(
-            30523, 384
-        ).astype(np.float32)
+        weights["embeddings.word_embeddings.weight"] = np.random.randn(30523, 384).astype(
+            np.float32
+        )
         save_file(weights, str(tmp_path / "model.safetensors"))
 
         from omlx.models.embedding import MLXEmbeddingModel
@@ -1214,7 +1320,6 @@ class TestNativeEmbeddingLoading:
     def test_load_native_falls_back_for_unknown_arch(self, tmp_path):
         """Test that native loading returns False for unsupported architectures."""
         import sys
-
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
         # Create config with unknown embedding architecture
@@ -1234,9 +1339,7 @@ class TestNativeEmbeddingLoading:
 
     def test_embed_produces_normalized_vectors(self, tmp_path):
         """Test that embed produces L2-normalized embedding vectors."""
-        import math
-        import sys
-
+        import sys, math
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
         config = {
