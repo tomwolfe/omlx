@@ -4,7 +4,6 @@
 import threading
 import time
 from pathlib import Path
-from typing import List
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +11,6 @@ import pytest
 from omlx.cache.paged_ssd_cache import (
     PagedSSDBlockMetadata,
     PagedSSDCacheManager,
-    _extract_tensor_bytes,
 )
 
 try:
@@ -46,8 +44,7 @@ class TestHotCacheDisabled:
         """Save/load should work even when hot cache is disabled."""
         block_hash = b"disabled_hot_cache_test"
         cache_data = [
-            (mx.zeros((1, 8, 64, 64)), mx.zeros((1, 8, 64, 64)))
-            for _ in range(4)
+            (mx.zeros((1, 8, 64, 64)), mx.zeros((1, 8, 64, 64))) for _ in range(4)
         ]
         result = manager.save_block(
             block_hash=block_hash,
@@ -118,8 +115,8 @@ class TestHotCacheEnabled:
         # Verify hot cache has the entry
         entry = manager._hot_cache_get(block_hash)
         assert entry is not None
-        assert 'tensors_raw' in entry
-        assert entry['num_layers'] == 4
+        assert "tensors_raw" in entry
+        assert entry["num_layers"] == 4
 
     def test_load_from_hot_cache(self, manager):
         """load_block() should return data from hot cache without SSD I/O."""
@@ -451,7 +448,7 @@ class TestHotCacheConcurrency:
             hot_cache_max_bytes=50 * 1024**2,
         )
 
-        errors: List[Exception] = []
+        errors: list[Exception] = []
         num_threads = 8
         ops_per_thread = 20
 
@@ -462,21 +459,21 @@ class TestHotCacheConcurrency:
                     # Create a fake hot cache entry with raw bytes
                     raw_data = bytes(1024)  # 1KB of zeros
                     entry = {
-                        'tensors_raw': {
-                            'layer_0_keys': (raw_data, 'float32', [1, 2, 16, 8]),
-                            'layer_0_values': (raw_data, 'float32', [1, 2, 16, 8]),
+                        "tensors_raw": {
+                            "layer_0_keys": (raw_data, "float32", [1, 2, 16, 8]),
+                            "layer_0_values": (raw_data, "float32", [1, 2, 16, 8]),
                         },
-                        'file_metadata': {},
-                        'num_layers': 1,
-                        'layer_cache_types': ['KVCache'],
-                        'block_metadata': None,
+                        "file_metadata": {},
+                        "num_layers": 1,
+                        "layer_cache_types": ["KVCache"],
+                        "block_metadata": None,
                     }
                     mgr._hot_cache_put(block_hash, entry)
 
                 # Read back
                 for i in range(ops_per_thread):
                     block_hash = f"conc_{thread_id}_{i}____".encode()
-                    result = mgr._hot_cache_get(block_hash)
+                    mgr._hot_cache_get(block_hash)
                     # May be None if evicted by another thread, that's OK
             except Exception as e:
                 errors.append(e)
@@ -1148,9 +1145,7 @@ class TestSSDWriteDrops:
             hot_cache_max_bytes=max_bytes,
         )
         try:
-            with patch.object(
-                mgr._write_queue, "put_nowait", side_effect=_queue.Full
-            ):
+            with patch.object(mgr._write_queue, "put_nowait", side_effect=_queue.Full):
                 self._save_block(mgr, b"qf_drop_block_00")
                 self._save_block(mgr, b"qf_drop_block_01")
                 # save_02 evicts block 00 → _enqueue_ssd_write → put_nowait
@@ -1222,9 +1217,7 @@ class TestSSDWriteDrops:
         try:
             cache_data = self._make_cache_data()
             block_hash = b"cold_late_drop_00"
-            with patch.object(
-                mgr._write_queue, "put_nowait", side_effect=_queue.Full
-            ):
+            with patch.object(mgr._write_queue, "put_nowait", side_effect=_queue.Full):
                 ok = mgr.save_block(
                     block_hash=block_hash,
                     cache_data=cache_data,

@@ -2,15 +2,14 @@
 """Tests for omlx.api.shared_models module."""
 
 import time
-import uuid
 
 import pytest
 
 from omlx.api.shared_models import (
+    BaseUsage,
     IDPrefix,
     generate_id,
     get_unix_timestamp,
-    BaseUsage,
 )
 
 

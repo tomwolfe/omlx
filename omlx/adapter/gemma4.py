@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, List
+from typing import Any
 
 try:
     from mlx_lm.tokenizer_utils import NaiveStreamingDetokenizer
@@ -64,10 +64,10 @@ def _strip_thinking(text: Any) -> Any:
 
 
 def extract_gemma4_messages(
-    messages: List[Any],
+    messages: list[Any],
     max_tool_result_tokens: int | None = None,
     tokenizer: Any | None = None,
-) -> List[dict]:
+) -> list[dict]:
     """Convert OpenAI-format messages to Gemma 4 chat-template format.
 
     The Gemma 4 chat template does not handle ``role=tool`` messages.
@@ -385,13 +385,8 @@ class Gemma4OutputParserSession:
             # tokens arrive. Buffer and wait so the canonical match wins.
             if not final and marker == _OPEN_MARKER_BARE:
                 suffix = source[idx:]
-                if (
-                    len(suffix) < len(_OPEN_MARKER)
-                    and _OPEN_MARKER.startswith(suffix)
-                ):
-                    self._append_text(
-                        stream_parts, visible_parts, source[pos:idx]
-                    )
+                if len(suffix) < len(_OPEN_MARKER) and _OPEN_MARKER.startswith(suffix):
+                    self._append_text(stream_parts, visible_parts, source[pos:idx])
                     self._buffer = suffix
                     return OutputParserTokenResult(
                         stream_text="".join(stream_parts),

@@ -7,17 +7,15 @@ Dataset bundled from cais/mmlu on HuggingFace.
 
 import json
 import logging
-import re
 from pathlib import Path
-from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import load_jsonl, stratified_sample
+from .utils import index_to_letter
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
-ANSWER_MAP = {0: "A", 1: "B", 2: "C", 3: "D"}
 
 
 def _format_subject_name(subject: str) -> str:
@@ -31,7 +29,7 @@ def _format_question(item: dict) -> str:
     choices = item["choices"]
     parts = [question]
     for i, choice in enumerate(choices):
-        parts.append(f"{ANSWER_MAP[i]}. {choice}")
+        parts.append(f"{index_to_letter(i)}. {choice}")
     return "\n".join(parts)
 
 
@@ -65,13 +63,19 @@ class MMLUBenchmark(BaseBenchmark):
         for item in test_items:
             choices = _parse_choices(item.get("choices", []))
             answer_idx = item.get("answer", 0)
-            answer_letter = ANSWER_MAP.get(answer_idx, str(answer_idx))
-            all_items.append({
-                "question": item["question"],
-                "choices": choices,
-                "answer": answer_letter,
-                "subject": item.get("subject", "unknown"),
-            })
+            answer_letter = (
+                index_to_letter(answer_idx)
+                if isinstance(answer_idx, int)
+                else str(answer_idx)
+            )
+            all_items.append(
+                {
+                    "question": item["question"],
+                    "choices": choices,
+                    "answer": answer_letter,
+                    "subject": item.get("subject", "unknown"),
+                }
+            )
 
         # Load dev examples for few-shot
         dev_items = load_jsonl(DATA_DIR / "mmlu_dev.jsonl")
@@ -79,15 +83,21 @@ class MMLUBenchmark(BaseBenchmark):
             subject = item.get("subject", "unknown")
             choices = _parse_choices(item.get("choices", []))
             answer_idx = item.get("answer", 0)
-            answer_letter = ANSWER_MAP.get(answer_idx, str(answer_idx))
+            answer_letter = (
+                index_to_letter(answer_idx)
+                if isinstance(answer_idx, int)
+                else str(answer_idx)
+            )
             if subject not in self._few_shot_examples:
                 self._few_shot_examples[subject] = []
             if len(self._few_shot_examples[subject]) < 5:
-                self._few_shot_examples[subject].append({
-                    "question": item["question"],
-                    "choices": choices,
-                    "answer": answer_letter,
-                })
+                self._few_shot_examples[subject].append(
+                    {
+                        "question": item["question"],
+                        "choices": choices,
+                        "answer": answer_letter,
+                    }
+                )
 
         logger.info(f"MMLU: loaded {len(all_items)} questions")
 
@@ -124,5 +134,5 @@ class MMLUBenchmark(BaseBenchmark):
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]
 
-    def get_category(self, item: dict) -> Optional[str]:
+    def get_category(self, item: dict) -> str | None:
         return item.get("subject")

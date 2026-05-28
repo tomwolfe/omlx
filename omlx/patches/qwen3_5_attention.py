@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Optional
+from typing import Any
 
 try:
     import mlx.core as mx
@@ -93,7 +93,7 @@ def _rotate_half(x):
     return mx.concatenate([-x2, x1], axis=-1)
 
 
-def _is_text_only_position_ids(position_ids: "mx.array") -> bool:
+def _is_text_only_position_ids(position_ids: mx.array) -> bool:
     """Return True if position_ids is a text-only mRoPE tensor (all 3 sections
     identical), or doesn't have the multimodal triplet shape at all.
 
@@ -117,11 +117,11 @@ def _build_replacement_call():
 
     def __call__(
         self,
-        x: "mx.array",
-        mask: Optional["mx.array"] = None,
-        cache: Optional[Any] = None,
-        position_ids: Optional["mx.array"] = None,
-    ) -> "mx.array":
+        x: mx.array,
+        mask: mx.array | None = None,
+        cache: Any | None = None,
+        position_ids: mx.array | None = None,
+    ) -> mx.array:
         B, L, D = x.shape
 
         q_proj_output = self.q_proj(x)
@@ -133,9 +133,9 @@ def _build_replacement_call():
         keys, values = self.k_proj(x), self.v_proj(x)
 
         queries = self.q_norm(queries).transpose(0, 2, 1, 3)
-        keys = self.k_norm(
-            keys.reshape(B, L, self.num_key_value_heads, -1)
-        ).transpose(0, 2, 1, 3)
+        keys = self.k_norm(keys.reshape(B, L, self.num_key_value_heads, -1)).transpose(
+            0, 2, 1, 3
+        )
         values = values.reshape(B, L, self.num_key_value_heads, -1).transpose(
             0, 2, 1, 3
         )
@@ -192,9 +192,7 @@ def _build_replacement_call():
             # additional logic, but the immediate goal is to match the
             # mlx-lm engine path which is also int-offset for our targets.
             offset = (
-                cache.offset
-                if cache is not None and hasattr(cache, "offset")
-                else 0
+                cache.offset if cache is not None and hasattr(cache, "offset") else 0
             )
 
             # Build positions [offset, offset+L) and compute freqs once.
@@ -217,6 +215,7 @@ def _build_replacement_call():
                     from mlx_vlm.models.qwen3_5.language import (
                         apply_multimodal_rotary_pos_emb,
                     )
+
                     queries, keys = apply_multimodal_rotary_pos_emb(
                         queries, keys, cos, sin
                     )
@@ -264,9 +263,7 @@ def _build_replacement_call():
             )
 
             cos, sin = self.rotary_emb(values, position_ids)
-            queries, keys = apply_multimodal_rotary_pos_emb(
-                queries, keys, cos, sin
-            )
+            queries, keys = apply_multimodal_rotary_pos_emb(queries, keys, cos, sin)
 
         if cache is not None:
             keys, values = cache.update_and_fetch(keys, values)
@@ -303,9 +300,7 @@ def apply_qwen3_5_attention_patch(model: Any = None) -> bool:
     try:
         from mlx_vlm.models.qwen3_5.language import Qwen3_5Attention as _VLMAttn
 
-        _patch_class(
-            _VLMAttn, "mlx_vlm.models.qwen3_5.language.Qwen3_5Attention"
-        )
+        _patch_class(_VLMAttn, "mlx_vlm.models.qwen3_5.language.Qwen3_5Attention")
         return True
     except ImportError:
         logger.debug("mlx_vlm.models.qwen3_5.language not importable")

@@ -28,6 +28,7 @@ limit being below the chosen ceiling.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ctypes
 import ctypes.util
 import logging
@@ -87,6 +88,7 @@ class _VMStats64(ctypes.Structure):
     Getting the layout wrong silently mis-reads later fields, which is
     how we hit the "speculative = 8 TB" bug during planning.
     """
+
     _fields_ = [
         ("free_count", ctypes.c_uint32),
         ("active_count", ctypes.c_uint32),
@@ -468,11 +470,7 @@ class ProcessMemoryEnforcer:
         if stats is None:
             return max(0, omlx_usage + psutil.virtual_memory().available)
         ratio = _ACTIVE_RECLAIM_RATIO[self._memory_guard_tier]
-        reclaimable = (
-            stats["free"]
-            + stats["inactive"]
-            + int(stats["active"] * ratio)
-        )
+        reclaimable = stats["free"] + stats["inactive"] + int(stats["active"] * ratio)
         return max(0, omlx_usage + reclaimable)
 
     def _get_hard_limit_bytes(self) -> int:
@@ -616,10 +614,8 @@ class ProcessMemoryEnforcer:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         logger.info("Process memory enforcer stopped")
 
@@ -643,7 +639,8 @@ class ProcessMemoryEnforcer:
             self._settings_manager,
             global_idle_timeout_seconds=(
                 self._global_settings.idle_timeout.idle_timeout_seconds
-                if self._global_settings else None
+                if self._global_settings
+                else None
             ),
         )
 
@@ -772,9 +769,7 @@ class ProcessMemoryEnforcer:
                                 "are pinned and no loads in progress."
                             )
                         else:
-                            logger.warning(
-                                "Hard memory pressure but no models loaded."
-                            )
+                            logger.warning("Hard memory pressure but no models loaded.")
                 # soft + all pinned: nothing to do beyond admission pause.
                 break
 

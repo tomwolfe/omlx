@@ -3,7 +3,7 @@
 import math
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -39,12 +39,12 @@ class ModelArgs(BaseModelArgs):
     max_position_embeddings: int = 1048576
     rms_norm_eps: float = 1e-6
     rope_theta: float = 10000.0
-    rope_scaling: Optional[Dict] = None
+    rope_scaling: dict | None = None
     attention_bias: bool = False
     attention_dropout: float = 0.0
     head_dim: int = 512
     scoring_func: str = "sqrtsoftplus"
-    compress_ratios: List[int] = field(default_factory=list)
+    compress_ratios: list[int] = field(default_factory=list)
     compress_rope_theta: float = 160000.0
     hc_mult: int = 4
     hc_sinkhorn_iters: int = 20
@@ -123,7 +123,7 @@ def _expert_select(
     routed_scaling_factor: float,
     norm_topk_prob: bool,
     scoring_func: str,
-) -> Tuple[mx.array, mx.array]:
+) -> tuple[mx.array, mx.array]:
     logits = logits.astype(mx.float32)
     scores = _score_func(logits, scoring_func)
     biased = scores + e_score_correction_bias
@@ -143,7 +143,7 @@ def _hash_expert_select(
     routed_scaling_factor: float,
     norm_topk_prob: bool,
     scoring_func: str,
-) -> Tuple[mx.array, mx.array]:
+) -> tuple[mx.array, mx.array]:
     logits = logits.astype(mx.float32)
     scores = _score_func(logits, scoring_func)
     inds = tid2eid[input_ids]
@@ -176,7 +176,7 @@ class DeepseekV4RoPE(nn.Module):
         self,
         dims: int,
         base: float,
-        scaling_config: Optional[Dict] = None,
+        scaling_config: dict | None = None,
         max_position_embeddings: int = 1048576,
         freq_scale: int = 1,
     ):
@@ -255,7 +255,7 @@ class DeepseekV4RoPE(nn.Module):
         )
 
 
-def _apply_score_mask(scores: mx.array, mask: Optional[mx.array]) -> mx.array:
+def _apply_score_mask(scores: mx.array, mask: mx.array | None) -> mx.array:
     if mask is None:
         return scores
     if mask.dtype == mx.bool_:
@@ -263,7 +263,7 @@ def _apply_score_mask(scores: mx.array, mask: Optional[mx.array]) -> mx.array:
     return scores + mask.astype(scores.dtype)
 
 
-def _extend_mask(mask: Optional[mx.array], pool_mask: Optional[mx.array], N: int):
+def _extend_mask(mask: mx.array | None, pool_mask: mx.array | None, N: int):
     if mask is None:
         return None
 
@@ -324,10 +324,10 @@ def _sparse_pooled_attention(
     local_kv: mx.array,
     pooled: mx.array,
     topk: mx.array,
-    local_mask: Optional[mx.array],
-    pooled_mask: Optional[mx.array],
+    local_mask: mx.array | None,
+    pooled_mask: mx.array | None,
     scale: float,
-    sinks: Optional[mx.array],
+    sinks: mx.array | None,
 ) -> mx.array:
     B, H, L, D = q.shape
     idx = topk[:, None, :, :, None]
@@ -382,7 +382,7 @@ class MoEGate(nn.Module):
                 (self.num_experts,), dtype=mx.float32
             )
 
-    def __call__(self, x: mx.array, input_ids: Optional[mx.array] = None):
+    def __call__(self, x: mx.array, input_ids: mx.array | None = None):
         logits = x @ self.weight.T
 
         if self.hash:
@@ -413,7 +413,7 @@ class DeepseekV4MLP(nn.Module):
     def __init__(
         self,
         config: ModelArgs,
-        intermediate_size: Optional[int] = None,
+        intermediate_size: int | None = None,
         swiglu_limit: float = 0.0,
     ):
         super().__init__()
@@ -462,7 +462,6 @@ class DeepseekV4MoE(nn.Module):
 
 
 class Compressor(nn.Module):
-
     def __init__(self, config: ModelArgs, compress_ratio: int, head_dim: int):
         super().__init__()
         self.compress_ratio = compress_ratio
@@ -485,8 +484,8 @@ class Compressor(nn.Module):
     def __call__(
         self,
         x: mx.array,
-        pool_cache: Optional[PoolingCache],
-        offset: Union[int, mx.array],
+        pool_cache: PoolingCache | None,
+        offset: int | mx.array,
     ) -> mx.array:
         B, _, _ = x.shape
         kv = self.wkv(x)
@@ -539,8 +538,8 @@ class Indexer(nn.Module):
         x: mx.array,
         q_residual: mx.array,
         position_rope: DeepseekV4RoPE,
-        pool_cache: Optional[PoolingCache],
-        offset: Union[int, mx.array],
+        pool_cache: PoolingCache | None,
+        offset: int | mx.array,
     ):
         B, L, _ = x.shape
         pooled = self.compressor(x, pool_cache, offset)
@@ -614,8 +613,8 @@ class LocalAttention(nn.Module):
     def __call__(
         self,
         x: mx.array,
-        mask: Optional[mx.array] = None,
-        cache: Optional[Any] = None,
+        mask: mx.array | None = None,
+        cache: Any | None = None,
     ) -> mx.array:
         B, L, _ = x.shape
         offset = cache.offset if cache is not None else 0
@@ -703,8 +702,8 @@ class CompressedAttention(nn.Module):
     def __call__(
         self,
         x: mx.array,
-        mask: Optional[mx.array] = None,
-        cache: Optional[Any] = None,
+        mask: mx.array | None = None,
+        cache: Any | None = None,
     ) -> mx.array:
         B, L, _ = x.shape
         local_cache = cache[0] if cache is not None else None
@@ -805,8 +804,8 @@ class SparseCompressedAttention(nn.Module):
     def __call__(
         self,
         x: mx.array,
-        mask: Optional[mx.array] = None,
-        cache: Optional[Any] = None,
+        mask: mx.array | None = None,
+        cache: Any | None = None,
     ) -> mx.array:
         B, L, _ = x.shape
         local_cache = cache[0] if cache is not None else None
@@ -914,8 +913,8 @@ class DeepseekV4Block(nn.Module):
     def __call__(
         self,
         h: mx.array,
-        mask: Optional[mx.array],
-        cache: Optional[Any],
+        mask: mx.array | None,
+        cache: Any | None,
         input_ids: mx.array,
     ) -> mx.array:
         residual = h
@@ -941,7 +940,7 @@ class DeepseekV4Model(PipelineMixin, nn.Module):
         self.norm = nn.RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.hc_head = HyperHead(config)
 
-    def __call__(self, inputs: mx.array, cache: Optional[Any] = None) -> mx.array:
+    def __call__(self, inputs: mx.array, cache: Any | None = None) -> mx.array:
         h = self.embed_tokens(inputs)
         h = mx.broadcast_to(
             h[:, :, None, :],
@@ -994,7 +993,7 @@ class Model(nn.Module):
         self.model = DeepseekV4Model(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-    def __call__(self, inputs: mx.array, cache: Optional[Any] = None):
+    def __call__(self, inputs: mx.array, cache: Any | None = None):
         return self.lm_head(self.model(inputs, cache))
 
     @property
@@ -1039,7 +1038,7 @@ class Model(nn.Module):
                 )
         return caches
 
-    def sanitize(self, weights: Dict[str, mx.array]) -> Dict[str, mx.array]:
+    def sanitize(self, weights: dict[str, mx.array]) -> dict[str, mx.array]:
         n_layers = self.args.num_hidden_layers
 
         new_weights = {}
@@ -1140,7 +1139,7 @@ class Model(nn.Module):
 
         return weights
 
-    def shard(self, group: Optional[mx.distributed.Group] = None):
+    def shard(self, group: mx.distributed.Group | None = None):
         group = group or mx.distributed.init()
         N = group.size()
         rank = group.rank()

@@ -16,7 +16,8 @@ Usage:
 
 import argparse
 import faulthandler
-import sys
+
+from omlx.exceptions import ValidationError
 
 
 def _has_cli_overrides(args) -> bool:
@@ -45,20 +46,19 @@ def _has_cli_overrides(args) -> bool:
         return True
     if hasattr(args, "no_proxy") and args.no_proxy is not None:
         return True
-    if hasattr(args, "ca_bundle") and args.ca_bundle is not None:
-        return True
-    return False
+    return bool(hasattr(args, "ca_bundle") and args.ca_bundle is not None)
 
 
 def serve_command(args):
     """Start the OpenAI-compatible multi-model server."""
     import logging
     import os
+
     import uvicorn
 
     from ._version import __version__
-    from .settings import init_settings, get_settings
-    from .logging_config import configure_file_logging, AdminStatsAccessFilter
+    from .logging_config import AdminStatsAccessFilter, configure_file_logging
+    from .settings import init_settings
 
     try:
         from ._build_info import build_number
@@ -66,8 +66,8 @@ def serve_command(args):
         build_number = None
 
     # Print version banner
-    print(f"\033[33moMLX - LLM inference, optimized for your Mac\033[0m")
-    print(f"\033[33m├─ https://github.com/jundot/omlx\033[0m")
+    print("\033[33moMLX - LLM inference, optimized for your Mac\033[0m")
+    print("\033[33m├─ https://github.com/jundot/omlx\033[0m")
     if build_number:
         print(f"\033[33m├─ Version: {__version__}\033[0m")
         print(f"\033[33m└─ Build: {build_number}\033[0m")
@@ -84,15 +84,24 @@ def serve_command(args):
 
     # Configure logging (use settings value which has proper priority)
     level_name = settings.server.log_level.upper()
-    log_level = TRACE if level_name == "TRACE" else getattr(logging, level_name, logging.INFO)
+    log_level = (
+        TRACE if level_name == "TRACE" else getattr(logging, level_name, logging.INFO)
+    )
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     # Set omlx loggers
-    for name in ["omlx", "omlx.scheduler", "omlx.paged_ssd_cache",
-                 "omlx.memory_monitor", "omlx.paged_cache", "omlx.prefix_cache",
-                 "omlx.engine_pool", "omlx.model_discovery"]:
+    for name in [
+        "omlx",
+        "omlx.scheduler",
+        "omlx.paged_ssd_cache",
+        "omlx.memory_monitor",
+        "omlx.paged_cache",
+        "omlx.prefix_cache",
+        "omlx.engine_pool",
+        "omlx.model_discovery",
+    ]:
         logging.getLogger(name).setLevel(log_level)
 
     # Suppress repetitive admin stats access logs
@@ -158,11 +167,14 @@ def serve_command(args):
     if errors:
         for error in errors:
             print(f"Configuration error: {error}")
-        sys.exit(1)
+        raise ValidationError(
+            f"Invalid configuration: {'; '.join(errors)}",
+            field="server configuration",
+        )
 
     # Import server and config
-    from .server import app, init_server
     from .config import parse_size
+    from .server import app, init_server
 
     model_dirs = settings.model.get_model_dirs(settings.base_path)
     print(f"Base path: {settings.base_path}")
@@ -201,7 +213,9 @@ def serve_command(args):
             cache_max_size_bytes = parse_size(args.paged_ssd_cache_max_size)
         else:
             # Use settings value (handles "auto" -> 10% of SSD capacity)
-            cache_max_size_bytes = settings.cache.get_ssd_cache_max_size_bytes(settings.base_path)
+            cache_max_size_bytes = settings.cache.get_ssd_cache_max_size_bytes(
+                settings.base_path
+            )
         scheduler_config.paged_ssd_cache_max_size = cache_max_size_bytes
     else:
         scheduler_config.paged_ssd_cache_max_size = 0
@@ -238,6 +252,7 @@ def serve_command(args):
     # and are only released via mx.clear_cache() (which we protect
     # with mx.synchronize()). See issue #300.
     import mlx.core as mx
+
     total_mem = mx.device_info().get("memory_size", 0)
     if total_mem > 0:
         mx.set_cache_limit(total_mem)
@@ -255,7 +270,9 @@ def serve_command(args):
     # Start server
     print(f"Starting server at http://{settings.server.host}:{settings.server.port}")
     # uvicorn does not support "trace" — map to "debug" for its internal logging
-    uvicorn_level = "debug" if settings.server.log_level == "trace" else settings.server.log_level
+    uvicorn_level = (
+        "debug" if settings.server.log_level == "trace" else settings.server.log_level
+    )
     # Only show access logs at trace level
     show_access_log = settings.server.log_level == "trace"
     uvicorn.run(
@@ -265,7 +282,6 @@ def serve_command(args):
         log_level=uvicorn_level,
         access_log=show_access_log,
     )
-
 
 
 def launch_command(args, extra_args: list[str] | None = None):
@@ -290,9 +306,11 @@ def launch_command(args, extra_args: list[str] | None = None):
 
     integration = get_integration(tool_name)
     if integration is None:
-        print(f"Unknown integration: {tool_name}")
-        print("Available: " + ", ".join(i.name for i in list_integrations()))
-        sys.exit(1)
+        raise ValidationError(
+            f"Unknown integration: {tool_name}",
+            field="tool",
+            details={"available": list(i.name for i in list_integrations())},
+        )
 
     # Resolve host/port: CLI args > env vars > settings.json > defaults
     settings = GlobalSettings.load()
@@ -310,9 +328,11 @@ def launch_command(args, extra_args: list[str] | None = None):
         resp = requests.get(f"{base_url}/health", timeout=3)
         resp.raise_for_status()
     except Exception:
-        print(f"oMLX server is not running at {base_url}")
-        print("Start the server first: omlx serve")
-        sys.exit(1)
+        raise ValidationError(
+            f"oMLX server is not running at {base_url}",
+            field="server",
+            details={"host": connect_host, "port": port},
+        )
 
     # Get API key: CLI args > settings.json > empty
     api_key = getattr(args, "api_key", None) or settings.auth.api_key or ""
@@ -349,26 +369,27 @@ def launch_command(args, extra_args: list[str] | None = None):
             models = []
 
         if not models:
-            print("No models available. Load a model first.")
-            sys.exit(1)
+            raise ValidationError(
+                "No models available. Load a model first.",
+                field="model",
+            )
 
         if len(models) == 1:
             model = models[0]
             print(f"Using model: {model}")
         else:
             models_info_list = [
-                {"id": m_id, **models_status_map.get(m_id, {})}
-                for m_id in models
+                {"id": m_id, **models_status_map.get(m_id, {})} for m_id in models
             ]
-            model = integration.select_model(
-                models_info_list, integration.display_name
-            )
+            model = integration.select_model(models_info_list, integration.display_name)
 
     # Check if tool is installed
     if not integration.is_installed():
-        print(f"{integration.display_name} is not installed.")
-        print(f"Install: {integration.install_hint}")
-        sys.exit(1)
+        raise ValidationError(
+            f"{integration.display_name} is not installed.",
+            field="tool",
+            details={"install_hint": integration.install_hint},
+        )
 
     # Resolve model limits from pre-fetched status
     model_info = models_status_map.get(model, {})
@@ -409,7 +430,7 @@ def diagnose_menubar() -> int:
 
     mac_ver = platform.mac_ver()[0] or "unknown"
     print(f"macOS:          {mac_ver}")
-    print(f"Bundle ID:      app.omlx")
+    print("Bundle ID:      app.omlx")
 
     app_path = Path("/Applications/oMLX.app")
     print(f"App installed:  {'yes' if app_path.exists() else 'NO (install DMG first)'}")
@@ -417,7 +438,9 @@ def diagnose_menubar() -> int:
     try:
         res = subprocess.run(
             ["pgrep", "-af", "oMLX"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         running = bool(res.stdout.strip())
         print(f"Menubar app:    {'running' if running else 'NOT running'}")
@@ -467,7 +490,9 @@ def diagnose_menubar() -> int:
     print()
     print("If the icon is missing on macOS Tahoe (26.x):")
     print("  1. Open System Settings > Menu Bar")
-    print("     open 'x-apple.systempreferences:com.apple.ControlCenter-Settings.extension?MenuBar'")
+    print(
+        "     open 'x-apple.systempreferences:com.apple.ControlCenter-Settings.extension?MenuBar'"
+    )
     print("  2. Find 'oMLX' and set it to 'Show in Menu Bar'")
     print("  3. If oMLX isn't in the list, quit the app and relaunch oMLX.app")
     print()
@@ -527,8 +552,12 @@ Example directory structure:
         help="Directory containing model subdirectories (default: ~/.omlx/models)",
     )
     # Server options
-    serve_parser.add_argument("--host", type=str, default=None, help="Host to bind (default: 127.0.0.1)")
-    serve_parser.add_argument("--port", type=int, default=None, help="Port to bind (default: 8000)")
+    serve_parser.add_argument(
+        "--host", type=str, default=None, help="Host to bind (default: 127.0.0.1)"
+    )
+    serve_parser.add_argument(
+        "--port", type=int, default=None, help="Port to bind (default: 8000)"
+    )
     serve_parser.add_argument(
         "--log-level",
         type=str,
@@ -721,10 +750,18 @@ Example directory structure:
         if args.command == "serve":
             serve_command(args)
         elif args.command == "diagnose":
-            sys.exit(diagnose_command(args))
+            result = diagnose_command(args)
+            if result != 0:
+                raise ValidationError(
+                    f"Diagnose command returned exit code {result}",
+                    field="diagnose",
+                )
         else:
             parser.print_help()
-            sys.exit(1)
+            raise ValidationError(
+                "Unknown or missing command. Use --help for usage information.",
+                field="command",
+            )
 
 
 if __name__ == "__main__":

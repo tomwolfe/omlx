@@ -28,9 +28,7 @@ def _fake_drafter_model(model_type: str = "gemma4_assistant") -> MagicMock:
 def test_load_vlm_mtp_drafter_happy_path():
     """Valid gemma4_assistant artifact returns a populated VLMMTPDrafter."""
     fake_model = _fake_drafter_model("gemma4_assistant")
-    with patch.object(
-        vlm_mtp, "_vlm_load_drafter", return_value=(fake_model, "mtp")
-    ):
+    with patch.object(vlm_mtp, "_vlm_load_drafter", return_value=(fake_model, "mtp")):
         drafter = vlm_mtp.load_vlm_mtp_drafter("/path/to/drafter")
     assert isinstance(drafter, vlm_mtp.VLMMTPDrafter)
     assert drafter.draft_kind == "mtp"
@@ -51,9 +49,7 @@ def test_load_vlm_mtp_drafter_rejects_dflash_kind():
 def test_load_vlm_mtp_drafter_rejects_wrong_model_type():
     """Even if kind=='mtp', non-gemma4_assistant model_type is rejected."""
     fake_model = _fake_drafter_model("qwen3_5_assistant")  # hypothetical
-    with patch.object(
-        vlm_mtp, "_vlm_load_drafter", return_value=(fake_model, "mtp")
-    ):
+    with patch.object(vlm_mtp, "_vlm_load_drafter", return_value=(fake_model, "mtp")):
         result = vlm_mtp.load_vlm_mtp_drafter("/path/to/drafter")
     assert result is None
 
@@ -116,7 +112,9 @@ def test_run_vlm_mtp_decode_batch_dispatches_to_mtp_rounds_batch():
     first_bonus = mx.array([1, 2, 3])  # B=3
     yielded = [([1, None, 3], None), ([None, None, None], None)]
     with (
-        patch.object(vlm_mtp, "_mtp_rounds_batch", return_value=iter(yielded)) as m_batch,
+        patch.object(
+            vlm_mtp, "_mtp_rounds_batch", return_value=iter(yielded)
+        ) as m_batch,
         patch.object(vlm_mtp, "_mtp_rounds") as m_single,
     ):
         out = list(

@@ -229,7 +229,10 @@ class STTEngine(BaseNonStreamingEngine):
         file_size = os.path.getsize(audio_path) if os.path.exists(audio_path) else 0
         logger.info(
             "STT transcribe: model=%s, file=%s (%d bytes), language=%s",
-            self._model_name, os.path.basename(audio_path), file_size, language,
+            self._model_name,
+            os.path.basename(audio_path),
+            file_size,
+            language,
         )
 
         model = self._model
@@ -241,6 +244,7 @@ class STTEngine(BaseNonStreamingEngine):
                 return s
             # dataclass → asdict
             import dataclasses
+
             if dataclasses.is_dataclass(s) and not isinstance(s, type):
                 return dataclasses.asdict(s)
             # object with __dict__
@@ -269,24 +273,18 @@ class STTEngine(BaseNonStreamingEngine):
             # result is typically an STTOutput dataclass with:
             # text, segments, language, total_time, etc.
             if hasattr(result, "text"):
-                raw_lang = _normalize_language(
-                    getattr(result, "language", None)
-                )
+                raw_lang = _normalize_language(getattr(result, "language", None))
                 if raw_lang is None:
                     raw_lang = language
 
                 raw_segs = getattr(result, "segments", None)
-                segments = [
-                    _normalize_segment(s) for s in raw_segs
-                ] if raw_segs else []
+                segments = [_normalize_segment(s) for s in raw_segs] if raw_segs else []
 
                 return {
                     "text": result.text or "",
                     "language": raw_lang,
                     "segments": segments,
-                    "duration": getattr(
-                        result, "total_time", 0.0
-                    ),
+                    "duration": getattr(result, "total_time", 0.0),
                 }
             # Fallback for unexpected return types
             return {
@@ -303,15 +301,15 @@ class STTEngine(BaseNonStreamingEngine):
         )
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                get_mlx_executor(), _transcribe_sync
-            )
+            result = await loop.run_in_executor(get_mlx_executor(), _transcribe_sync)
 
             elapsed = time.monotonic() - t0
             text_len = len(result.get("text", ""))
             logger.info(
                 "STT transcribe done: model=%s, %.2fs, %d chars output",
-                self._model_name, elapsed, text_len,
+                self._model_name,
+                elapsed,
+                text_len,
             )
             return result
         finally:

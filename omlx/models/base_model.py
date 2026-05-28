@@ -7,7 +7,6 @@ that are not yet supported by mlx-embeddings.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 import mlx.core as mx
 
@@ -26,13 +25,13 @@ class BaseModelOutput:
     last_hidden_state: mx.array
     """Hidden states from the last layer."""
 
-    text_embeds: Optional[mx.array] = None
+    text_embeds: mx.array | None = None
     """Normalized text embeddings."""
 
-    pooler_output: Optional[mx.array] = None
+    pooler_output: mx.array | None = None
     """Pooled output (e.g., CLS token or mean pooling)."""
 
-    hidden_states: Optional[tuple] = None
+    hidden_states: tuple | None = None
     """All hidden states if output_hidden_states=True."""
 
 

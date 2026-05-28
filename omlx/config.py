@@ -12,7 +12,7 @@ This module provides unified configuration management with:
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 
 def parse_size(size_str: str) -> int:
@@ -57,7 +57,7 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
-    cors_origins: List[str] = field(default_factory=lambda: ["*"])
+    cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
 
 @dataclass
@@ -68,7 +68,7 @@ class ModelConfig:
     # Security: default off. HuggingFace repos can ship arbitrary modeling_*.py
     # that gets executed at load time when this is True. Issue #926.
     trust_remote_code: bool = False
-    model_path: Optional[str] = None
+    model_path: str | None = None
 
 
 @dataclass
@@ -89,7 +89,7 @@ class SchedulerConfig:
     max_num_seqs: int = 8
     completion_batch_size: int = 8
     stream_interval: int = 1
-    enable_thinking: Optional[bool] = None
+    enable_thinking: bool | None = None
 
 
 @dataclass
@@ -106,7 +106,7 @@ class PagedSSDCacheConfig:
 
     enabled: bool = False
     hot_cache_only: bool = False
-    cache_dir: Optional[Path] = None
+    cache_dir: Path | None = None
     max_size: str = "100GB"
     hot_cache_max_size: str = "0"  # "0" = disabled, e.g. "8GB"
 
@@ -125,7 +125,7 @@ class PagedSSDCacheConfig:
 class MCPConfig:
     """MCP (Model Context Protocol) configuration."""
 
-    config_path: Optional[str] = None
+    config_path: str | None = None
     enabled: bool = False
 
 
@@ -165,9 +165,9 @@ class OMLXConfig:
 
         # Model settings
         config.model.model_name = os.getenv("OMLX_MODEL", config.model.model_name)
-        config.model.trust_remote_code = os.getenv(
-            "OMLX_TRUST_REMOTE_CODE", "false"
-        ).lower() == "true"
+        config.model.trust_remote_code = (
+            os.getenv("OMLX_TRUST_REMOTE_CODE", "false").lower() == "true"
+        )
 
         # Generation settings
         config.generation.max_tokens = int(
@@ -178,7 +178,9 @@ class OMLXConfig:
         )
 
         # Paged SSD cache settings
-        config.paged_ssd_cache.hot_cache_only = os.getenv("OMLX_HOT_CACHE_ONLY", "false").lower() == "true"
+        config.paged_ssd_cache.hot_cache_only = (
+            os.getenv("OMLX_HOT_CACHE_ONLY", "false").lower() == "true"
+        )
         paged_ssd_dir = os.getenv("OMLX_PAGED_SSD_CACHE_DIR")
         if paged_ssd_dir:
             config.paged_ssd_cache.enabled = True
@@ -194,9 +196,9 @@ class OMLXConfig:
             config.mcp.config_path = mcp_config
 
         # Feature flags
-        config.continuous_batching = os.getenv(
-            "OMLX_CONTINUOUS_BATCHING", "false"
-        ).lower() == "true"
+        config.continuous_batching = (
+            os.getenv("OMLX_CONTINUOUS_BATCHING", "false").lower() == "true"
+        )
 
         return config
 
@@ -253,7 +255,7 @@ class OMLXConfig:
 
         return config
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         from dataclasses import asdict
 
@@ -265,13 +267,15 @@ class OMLXConfig:
             "cache": asdict(self.cache),
             "paged_ssd_cache": {
                 **asdict(self.paged_ssd_cache),
-                "cache_dir": str(self.paged_ssd_cache.cache_dir) if self.paged_ssd_cache.cache_dir else None,
+                "cache_dir": str(self.paged_ssd_cache.cache_dir)
+                if self.paged_ssd_cache.cache_dir
+                else None,
             },
             "mcp": asdict(self.mcp),
             "continuous_batching": self.continuous_batching,
         }
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """
         Validate configuration.
 
@@ -293,8 +297,7 @@ class OMLXConfig:
             errors.append(f"top_p must be 0.0-1.0: {self.generation.top_p}")
 
         # Paged SSD cache validation
-        if self.paged_ssd_cache.enabled:
-            if not self.paged_ssd_cache.cache_dir:
-                errors.append("Paged SSD cache enabled but no cache_dir specified")
+        if self.paged_ssd_cache.enabled and not self.paged_ssd_cache.cache_dir:
+            errors.append("Paged SSD cache enabled but no cache_dir specified")
 
         return errors

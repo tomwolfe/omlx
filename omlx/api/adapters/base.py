@@ -7,23 +7,24 @@ plus internal data structures for request/response handling.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from omlx.api.openai_models import ToolCall
 
 
-@dataclass
-class InternalMessage:
+class InternalMessage(BaseModel):
     """Internal representation of a chat message."""
 
     role: str
     content: str
-    name: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
 
-@dataclass
-class InternalRequest:
+class InternalRequest(BaseModel):
     """
     Internal request format used by the inference engine.
 
@@ -31,38 +32,37 @@ class InternalRequest:
     """
 
     # Required fields
-    messages: List[InternalMessage]
+    messages: list[InternalMessage]
 
     # Generation parameters
-    max_tokens: int = 2048
-    temperature: float = 1.0
-    top_p: float = 1.0
-    top_k: int = 0
-    min_p: float = 0.0
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
+    max_tokens: int = Field(default=2048)
+    temperature: float = Field(default=1.0)
+    top_p: float = Field(default=1.0)
+    top_k: int = Field(default=0)
+    min_p: float = Field(default=0.0)
+    presence_penalty: float = Field(default=0.0)
+    frequency_penalty: float = Field(default=0.0)
     stream: bool = False
 
     # Stop conditions
-    stop: Optional[List[str]] = None
-    stop_token_ids: Optional[List[int]] = None
+    stop: list[str] | None = None
+    stop_token_ids: list[int] | None = None
 
     # Tool calling
-    tools: Optional[List[Dict[str, Any]]] = None
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | dict[str, Any] | None = None
 
     # Response format
-    response_format: Optional[Dict[str, Any]] = None
+    response_format: dict[str, Any] | None = None
 
     # Model
-    model: Optional[str] = None
+    model: str | None = None
 
     # Metadata
-    request_id: Optional[str] = None
+    request_id: str | None = None
 
 
-@dataclass
-class InternalResponse:
+class InternalResponse(BaseModel):
     """
     Internal response format from the inference engine.
 
@@ -71,8 +71,8 @@ class InternalResponse:
 
     # Generated content
     text: str
-    finish_reason: Optional[str] = None
-    reasoning_content: Optional[str] = None
+    finish_reason: str | None = None
+    reasoning_content: str | None = None
 
     # Token counts
     prompt_tokens: int = 0
@@ -80,21 +80,20 @@ class InternalResponse:
     cached_tokens: int = 0
 
     # Tool calls (parsed)
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_calls: list[ToolCall] | None = None
 
     # Metadata
-    request_id: Optional[str] = None
-    model: Optional[str] = None
+    request_id: str | None = None
+    model: str | None = None
 
 
-@dataclass
-class StreamChunk:
+class StreamChunk(BaseModel):
     """A single chunk in a streaming response."""
 
     text: str = ""
-    reasoning_content: Optional[str] = None
-    finish_reason: Optional[str] = None
-    tool_call_delta: Optional[Dict[str, Any]] = None
+    reasoning_content: str | None = None
+    finish_reason: str | None = None
+    tool_call_delta: dict[str, Any] | None = None
     is_first: bool = False
     is_last: bool = False
 

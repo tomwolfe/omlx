@@ -7,11 +7,10 @@ to verify request/response formats without loading actual models.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-
 from fastapi.testclient import TestClient
 
 from omlx.api.responses_utils import ResponseStore
@@ -25,7 +24,7 @@ from omlx.mcp.types import MCPToolResult
 class MockEmbeddingOutput:
     """Mock embedding output for testing."""
 
-    embeddings: List[List[float]] = field(
+    embeddings: list[list[float]] = field(
         default_factory=lambda: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     )
     total_tokens: int = 10
@@ -36,8 +35,8 @@ class MockEmbeddingOutput:
 class MockRerankOutput:
     """Mock rerank output for testing."""
 
-    scores: List[float] = field(default_factory=lambda: [0.9, 0.5, 0.3])
-    indices: List[int] = field(default_factory=lambda: [0, 1, 2])
+    scores: list[float] = field(default_factory=lambda: [0.9, 0.5, 0.3])
+    indices: list[int] = field(default_factory=lambda: [0, 1, 2])
     total_tokens: int = 50
 
 
@@ -46,13 +45,13 @@ class MockGenerationOutput:
     """Mock generation output for testing."""
 
     text: str = "Hello, I am a helpful assistant."
-    tokens: List[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    tokens: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
     prompt_tokens: int = 10
     completion_tokens: int = 5
     finish_reason: str = "stop"
     new_text: str = ""
     finished: bool = True
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_calls: list[dict[str, Any]] | None = None
     cached_tokens: int = 0
 
 
@@ -81,7 +80,7 @@ class MockEmbeddingEngineImpl(EmbeddingEngine):
             dimensions=3,
         )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         return {"model_name": self._model_name, "loaded": True}
 
 
@@ -104,7 +103,7 @@ class MockRerankerEngineImpl(RerankerEngine):
         pass
 
     async def rerank(
-        self, query: str, documents: List[str], top_n: Optional[int] = None, **kwargs
+        self, query: str, documents: list[str], top_n: int | None = None, **kwargs
     ) -> MockRerankOutput:
         n_docs = len(documents)
         scores = [0.9 - i * 0.2 for i in range(n_docs)]
@@ -117,7 +116,7 @@ class MockRerankerEngineImpl(RerankerEngine):
             total_tokens=n_docs * 20,
         )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         return {"model_name": self._model_name, "loaded": True}
 
 
@@ -127,15 +126,15 @@ class MockTokenizer:
     def __init__(self):
         self.eos_token_id = 2
 
-    def encode(self, text: str) -> List[int]:
+    def encode(self, text: str) -> list[int]:
         # Simple simulation: split by words
         return [100 + i for i, _ in enumerate(text.split())]
 
-    def decode(self, tokens: List[int], skip_special_tokens: bool = True) -> str:
+    def decode(self, tokens: list[int], skip_special_tokens: bool = True) -> str:
         return f"<decoded:{len(tokens)} tokens>"
 
     def apply_chat_template(
-        self, messages: List[Dict], tokenize: bool = False, **kwargs
+        self, messages: list[dict], tokenize: bool = False, **kwargs
     ) -> str:
         parts = []
         for msg in messages:
@@ -162,7 +161,7 @@ class MockBaseEngine(BaseEngine):
         return self._tokenizer
 
     @property
-    def model_type(self) -> Optional[str]:
+    def model_type(self) -> str | None:
         return self._model_type
 
     @property
@@ -191,14 +190,16 @@ class MockBaseEngine(BaseEngine):
             finish_reason="stop",
         )
 
-    def count_chat_tokens(self, messages: List[Dict], tools=None, chat_template_kwargs=None, **kwargs) -> int:
+    def count_chat_tokens(
+        self, messages: list[dict], tools=None, chat_template_kwargs=None, **kwargs
+    ) -> int:
         prompt = self._tokenizer.apply_chat_template(messages, tokenize=False)
         return len(self._tokenizer.encode(prompt))
 
-    async def chat(self, messages: List[Dict], **kwargs) -> MockGenerationOutput:
+    async def chat(self, messages: list[dict], **kwargs) -> MockGenerationOutput:
         return MockGenerationOutput(text="Chat response.")
 
-    async def stream_chat(self, messages: List[Dict], **kwargs):
+    async def stream_chat(self, messages: list[dict], **kwargs):
         yield MockGenerationOutput(
             text="Hello",
             new_text="Hello",
@@ -211,7 +212,7 @@ class MockBaseEngine(BaseEngine):
             finish_reason="stop",
         )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         return {}
 
     def get_cache_stats(self):
@@ -221,13 +222,13 @@ class MockBaseEngine(BaseEngine):
 class RecordingResponsesEngine(MockBaseEngine):
     """Mock engine that records request messages across /v1/responses calls."""
 
-    def __init__(self, outputs: Optional[List[MockGenerationOutput]] = None):
+    def __init__(self, outputs: list[MockGenerationOutput] | None = None):
         super().__init__()
         self._outputs = list(outputs or [])
-        self.recorded_messages: List[List[Dict[str, Any]]] = []
+        self.recorded_messages: list[list[dict[str, Any]]] = []
         self._model_type = "gpt_oss"
 
-    async def chat(self, messages: List[Dict], **kwargs) -> MockGenerationOutput:
+    async def chat(self, messages: list[dict], **kwargs) -> MockGenerationOutput:
         self.recorded_messages.append(messages)
         if self._outputs:
             return self._outputs.pop(0)
@@ -239,9 +240,9 @@ class MockEnginePool:
 
     def __init__(
         self,
-        llm_engine: Optional[MockBaseEngine] = None,
-        embedding_engine: Optional[MockEmbeddingEngineImpl] = None,
-        reranker_engine: Optional[MockRerankerEngineImpl] = None,
+        llm_engine: MockBaseEngine | None = None,
+        embedding_engine: MockEmbeddingEngineImpl | None = None,
+        reranker_engine: MockRerankerEngineImpl | None = None,
     ):
         self._llm_engine = llm_engine or MockBaseEngine()
         self._embedding_engine = embedding_engine
@@ -272,10 +273,10 @@ class MockEnginePool:
     def resolve_model_id(self, model_id_or_alias, settings_manager=None):
         return model_id_or_alias
 
-    def get_model_ids(self) -> List[str]:
+    def get_model_ids(self) -> list[str]:
         return [m["id"] for m in self._models]
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         return {
             "models": self._models,
             "loaded_count": self.loaded_model_count,
@@ -326,7 +327,7 @@ def mock_engine_pool(mock_llm_engine, mock_embedding_engine, mock_reranker_engin
 @pytest.fixture
 def client(mock_engine_pool):
     """Create a test client with mocked server state."""
-    from omlx.server import app, _server_state
+    from omlx.server import _server_state, app
 
     # Store original state
     original_pool = _server_state.engine_pool
@@ -403,19 +404,21 @@ class TestModelsEndpoint:
 
 class TestResponsesEndpoint:
     def test_response_endpoint_recovers_tool_call_from_thinking(self, tmp_path):
-        from omlx.server import app, _server_state
+        from omlx.server import _server_state, app
 
         state_dir = tmp_path / "response-state"
-        engine = RecordingResponsesEngine(outputs=[
-            MockGenerationOutput(
-                text=(
-                    "<think>Need to inspect first."
-                    '<tool_call>{"name":"exec_command","arguments":{"cmd":"ls"}}</tool_call>'
-                    "Then continue.</think>"
+        engine = RecordingResponsesEngine(
+            outputs=[
+                MockGenerationOutput(
+                    text=(
+                        "<think>Need to inspect first."
+                        '<tool_call>{"name":"exec_command","arguments":{"cmd":"ls"}}</tool_call>'
+                        "Then continue.</think>"
+                    ),
+                    finish_reason="stop",
                 ),
-                finish_reason="stop",
-            ),
-        ])
+            ]
+        )
         pool = MockEnginePool(llm_engine=engine)
 
         original_pool = _server_state.engine_pool
@@ -432,23 +435,27 @@ class TestResponsesEndpoint:
                 json={
                     "model": "test-model",
                     "input": "Explore the code",
-                    "tools": [{
-                        "type": "function",
-                        "name": "exec_command",
-                        "description": "Run a shell command",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"cmd": {"type": "string"}},
-                            "required": ["cmd"],
-                        },
-                    }],
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "exec_command",
+                            "description": "Run a shell command",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"cmd": {"type": "string"}},
+                                "required": ["cmd"],
+                            },
+                        }
+                    ],
                 },
             )
             assert response.status_code == 200
 
             output_items = response.json()["output"]
             message_items = [item for item in output_items if item["type"] == "message"]
-            function_items = [item for item in output_items if item["type"] == "function_call"]
+            function_items = [
+                item for item in output_items if item["type"] == "function_call"
+            ]
 
             assert len(message_items) == 1
             assert message_items[0]["content"][0]["text"] == ""
@@ -462,21 +469,25 @@ class TestResponsesEndpoint:
             _server_state.responses_store = original_store
 
     def test_previous_response_id_persists_across_store_restart(self, tmp_path):
-        from omlx.server import app, _server_state
+        from omlx.server import _server_state, app
 
         state_dir = tmp_path / "response-state"
-        engine = RecordingResponsesEngine(outputs=[
-            MockGenerationOutput(
-                text="",
-                finish_reason="tool_calls",
-                tool_calls=[{
-                    "id": "call_123",
-                    "name": "exec_command",
-                    "arguments": '{"cmd":"ls"}',
-                }],
-            ),
-            MockGenerationOutput(text="Done.", finish_reason="stop"),
-        ])
+        engine = RecordingResponsesEngine(
+            outputs=[
+                MockGenerationOutput(
+                    text="",
+                    finish_reason="tool_calls",
+                    tool_calls=[
+                        {
+                            "id": "call_123",
+                            "name": "exec_command",
+                            "arguments": '{"cmd":"ls"}',
+                        }
+                    ],
+                ),
+                MockGenerationOutput(text="Done.", finish_reason="stop"),
+            ]
+        )
         pool = MockEnginePool(llm_engine=engine)
 
         original_pool = _server_state.engine_pool
@@ -529,7 +540,7 @@ class TestResponsesEndpoint:
             _server_state.responses_store = original_store
 
     def test_missing_previous_response_id_returns_404(self, tmp_path):
-        from omlx.server import app, _server_state
+        from omlx.server import _server_state, app
 
         engine = RecordingResponsesEngine(outputs=[MockGenerationOutput(text="Done.")])
         pool = MockEnginePool(llm_engine=engine)
@@ -623,14 +634,18 @@ class TestCompletionEndpoint:
         data = response.json()
         assert "choices" in data
 
-    def test_completion_includes_cached_tokens_on_cache_hit(self, client, mock_llm_engine):
+    def test_completion_includes_cached_tokens_on_cache_hit(
+        self, client, mock_llm_engine
+    ):
         """Non-streaming completion responses should expose cached token counts."""
-        mock_llm_engine.generate = AsyncMock(return_value=MockGenerationOutput(
-            text="Generated response.",
-            prompt_tokens=2215,
-            completion_tokens=5,
-            cached_tokens=2048,
-        ))
+        mock_llm_engine.generate = AsyncMock(
+            return_value=MockGenerationOutput(
+                text="Generated response.",
+                prompt_tokens=2215,
+                completion_tokens=5,
+                cached_tokens=2048,
+            )
+        )
 
         response = client.post(
             "/v1/completions",
@@ -699,16 +714,20 @@ class TestChatCompletionEndpoint:
 
         assert response.status_code == 200
 
-    def test_chat_completion_includes_cached_tokens_on_cache_hit(self, client, mock_llm_engine):
+    def test_chat_completion_includes_cached_tokens_on_cache_hit(
+        self, client, mock_llm_engine
+    ):
         """Non-streaming chat responses should expose cached token counts."""
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text="Chat response.",
-            prompt_tokens=2215,
-            completion_tokens=5,
-            cached_tokens=2048,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text="Chat response.",
+                prompt_tokens=2215,
+                completion_tokens=5,
+                cached_tokens=2048,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/chat/completions",
@@ -722,37 +741,43 @@ class TestChatCompletionEndpoint:
         data = response.json()
         assert data["usage"]["prompt_tokens_details"]["cached_tokens"] == 2048
 
-    def test_chat_completion_sanitizes_reasoning_tool_call_markup(self, client, mock_llm_engine):
+    def test_chat_completion_sanitizes_reasoning_tool_call_markup(
+        self, client, mock_llm_engine
+    ):
         """Thinking-only tool calls should become structured tool_calls without leaked markup."""
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text=(
-                "<think>Need to inspect first."
-                '<tool_call>{"name":"get_weather","arguments":{"city":"SF"}}</tool_call>'
-                "Then continue.</think>"
-            ),
-            prompt_tokens=10,
-            completion_tokens=5,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text=(
+                    "<think>Need to inspect first."
+                    '<tool_call>{"name":"get_weather","arguments":{"city":"SF"}}</tool_call>'
+                    "Then continue.</think>"
+                ),
+                prompt_tokens=10,
+                completion_tokens=5,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/chat/completions",
             json={
                 "model": "test-model",
                 "messages": [{"role": "user", "content": "Hi"}],
-                "tools": [{
-                    "type": "function",
-                    "function": {
-                        "name": "get_weather",
-                        "description": "Get weather",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"city": {"type": "string"}},
-                            "required": ["city"],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "description": "Get weather",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"city": {"type": "string"}},
+                                "required": ["city"],
+                            },
                         },
-                    },
-                }],
+                    }
+                ],
             },
         )
 
@@ -820,19 +845,23 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 200
 
-    def test_anthropic_messages_sanitize_thinking_tool_call_markup(self, client, mock_llm_engine):
+    def test_anthropic_messages_sanitize_thinking_tool_call_markup(
+        self, client, mock_llm_engine
+    ):
         """Anthropic thinking blocks should not expose raw tool-call markup."""
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text=(
-                "<think>Need to inspect first."
-                '<tool_call>{"name":"get_weather","arguments":{"city":"SF"}}</tool_call>'
-                "Then continue.</think>"
-            ),
-            prompt_tokens=10,
-            completion_tokens=5,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text=(
+                    "<think>Need to inspect first."
+                    '<tool_call>{"name":"get_weather","arguments":{"city":"SF"}}</tool_call>'
+                    "Then continue.</think>"
+                ),
+                prompt_tokens=10,
+                completion_tokens=5,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/messages",
@@ -840,22 +869,28 @@ class TestAnthropicMessagesEndpoint:
                 "model": "test-model",
                 "max_tokens": 1024,
                 "messages": [{"role": "user", "content": "Hi"}],
-                "tools": [{
-                    "name": "get_weather",
-                    "description": "Get weather",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {"city": {"type": "string"}},
-                        "required": ["city"],
-                    },
-                }],
+                "tools": [
+                    {
+                        "name": "get_weather",
+                        "description": "Get weather",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                            "required": ["city"],
+                        },
+                    }
+                ],
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        thinking_blocks = [block for block in data["content"] if block["type"] == "thinking"]
-        tool_use_blocks = [block for block in data["content"] if block["type"] == "tool_use"]
+        thinking_blocks = [
+            block for block in data["content"] if block["type"] == "thinking"
+        ]
+        tool_use_blocks = [
+            block for block in data["content"] if block["type"] == "tool_use"
+        ]
 
         assert len(thinking_blocks) == 1
         assert thinking_blocks[0]["thinking"] == "Need to inspect first.Then continue."
@@ -1280,13 +1315,15 @@ class TestJsonOutputParsing:
         """Markdown-wrapped JSON should be parsed when response_format=json_object."""
         import json
 
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text='```json\n{"name": "test", "age": 25}\n```',
-            prompt_tokens=10,
-            completion_tokens=8,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text='```json\n{"name": "test", "age": 25}\n```',
+                prompt_tokens=10,
+                completion_tokens=8,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/chat/completions",
@@ -1307,13 +1344,15 @@ class TestJsonOutputParsing:
         """Already-clean JSON should pass through without corruption."""
         import json
 
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text='{"key": "value"}',
-            prompt_tokens=10,
-            completion_tokens=5,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text='{"key": "value"}',
+                prompt_tokens=10,
+                completion_tokens=5,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/chat/completions",
@@ -1334,13 +1373,15 @@ class TestJsonOutputParsing:
         """Responses API should parse markdown-wrapped JSON with text.format."""
         import json
 
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text='```json\n{"city": "Seoul", "temp": 15}\n```',
-            prompt_tokens=10,
-            completion_tokens=8,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text='```json\n{"city": "Seoul", "temp": 15}\n```',
+                prompt_tokens=10,
+                completion_tokens=8,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/responses",
@@ -1361,13 +1402,15 @@ class TestJsonOutputParsing:
 
     def test_responses_without_format_unchanged(self, client, mock_llm_engine):
         """Responses API without text.format should return raw text."""
-        mock_llm_engine.chat = AsyncMock(return_value=MockGenerationOutput(
-            text="Hello, how can I help?",
-            prompt_tokens=10,
-            completion_tokens=5,
-            finish_reason="stop",
-            finished=True,
-        ))
+        mock_llm_engine.chat = AsyncMock(
+            return_value=MockGenerationOutput(
+                text="Hello, how can I help?",
+                prompt_tokens=10,
+                completion_tokens=5,
+                finish_reason="stop",
+                finished=True,
+            )
+        )
 
         response = client.post(
             "/v1/responses",

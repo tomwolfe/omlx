@@ -7,10 +7,8 @@ and API key verification for admin panel access.
 
 import os
 import secrets
-from typing import Optional
 
 from fastapi import HTTPException, Request
-from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 # Session configuration
@@ -153,10 +151,7 @@ def verify_any_api_key(api_key: str, main_key: str, sub_keys: list) -> bool:
     if main_key and secrets.compare_digest(api_key, main_key):
         return True
     # Check sub keys
-    for sk in sub_keys:
-        if sk.key and secrets.compare_digest(api_key, sk.key):
-            return True
-    return False
+    return any(sk.key and secrets.compare_digest(api_key, sk.key) for sk in sub_keys)
 
 
 def validate_api_key(api_key: str) -> tuple[bool, str]:
@@ -241,4 +236,5 @@ async def require_admin(request: Request) -> bool:
 
 class _RedirectToLogin(Exception):
     """Raised to trigger a redirect to the admin login page."""
+
     pass

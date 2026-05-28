@@ -13,12 +13,12 @@ Note: Uses pytest-asyncio for async tests.
 """
 
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from omlx.engine_core import EngineCore, AsyncEngineCore, EngineConfig
-from omlx.request import Request, RequestOutput, RequestStatus, SamplingParams
+from omlx.engine_core import AsyncEngineCore, EngineConfig, EngineCore
+from omlx.request import RequestOutput, SamplingParams
 from omlx.scheduler import SchedulerConfig
 
 
@@ -269,7 +269,9 @@ class TestEngineCoreAddRequest:
                 engine.close()
 
     @pytest.mark.asyncio
-    async def test_add_request_with_default_sampling_params(self, mock_model, mock_tokenizer):
+    async def test_add_request_with_default_sampling_params(
+        self, mock_model, mock_tokenizer
+    ):
         """Test add_request() uses default sampling params when none provided."""
         with patch("omlx.engine_core.get_registry") as mock_registry:
             mock_registry.return_value.acquire.return_value = True
@@ -644,7 +646,9 @@ class TestEngineCoreErrorPropagation:
     """Tests for error propagation from engine loop to requests."""
 
     @pytest.mark.asyncio
-    async def test_error_output_propagates_to_collector(self, mock_model, mock_tokenizer):
+    async def test_error_output_propagates_to_collector(
+        self, mock_model, mock_tokenizer
+    ):
         """Test that engine loop errors are sent to request collectors."""
         with patch("omlx.engine_core.get_registry") as mock_registry:
             mock_registry.return_value.acquire.return_value = True
@@ -824,7 +828,7 @@ class TestAsyncEngineCore:
         not raise AttributeError in that late-cleanup path.
         """
         async_engine = AsyncEngineCore.__new__(AsyncEngineCore)
-        setattr(async_engine, "engine", None)
+        async_engine.engine = None
 
         result = await async_engine.abort_request("request-after-close")
 
@@ -834,7 +838,7 @@ class TestAsyncEngineCore:
     async def test_context_manager_exit_after_close_does_not_raise(self):
         """Context-manager cleanup should tolerate an already-closed wrapper."""
         async_engine = AsyncEngineCore.__new__(AsyncEngineCore)
-        setattr(async_engine, "engine", None)
+        async_engine.engine = None
 
         await async_engine.__aexit__(None, None, None)
 
@@ -842,7 +846,7 @@ class TestAsyncEngineCore:
     async def test_abort_all_requests_after_close_returns_zero(self):
         """Bulk abort should no-op if the async wrapper is already closed."""
         async_engine = AsyncEngineCore.__new__(AsyncEngineCore)
-        setattr(async_engine, "engine", None)
+        async_engine.engine = None
 
         count = await async_engine.abort_all_requests()
 
@@ -953,7 +957,7 @@ class TestEngineCoreAbortAllRequests:
                 await engine.start()
                 engine.scheduler.has_requests = lambda: False
 
-                rid = await engine.add_request(prompt="Hello")
+                await engine.add_request(prompt="Hello")
                 await engine.abort_all_requests()
 
                 # Engine should still be running
@@ -1001,6 +1005,7 @@ class TestGlobalMLXExecutor:
         """
         import threading
         import time
+
         from omlx.engine_core import get_mlx_executor
 
         executor = get_mlx_executor()
@@ -1033,8 +1038,10 @@ class TestGlobalMLXExecutor:
 
         # All tasks completed
         assert set(results) == {
-            "engine_a_step1", "engine_b_step1",
-            "engine_a_step2", "engine_b_step2",
+            "engine_a_step1",
+            "engine_b_step1",
+            "engine_a_step2",
+            "engine_b_step2",
         }
         # Critical: no two tasks ever ran at the same time
         assert max_concurrent == 1, (

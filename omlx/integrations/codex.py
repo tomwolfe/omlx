@@ -29,12 +29,11 @@ class CodexIntegration(Integration):
     def get_command(
         self, port: int, api_key: str, model: str, host: str = "127.0.0.1"
     ) -> str:
-        return (
-            f"{get_cli_prefix()} "
-            f"launch codex --model {model or 'select-a-model'}"
-        )
+        return f"{get_cli_prefix()} launch codex --model {model or 'select-a-model'}"
 
-    def configure(self, port: int, api_key: str, model: str, host: str = "127.0.0.1") -> None:
+    def configure(
+        self, port: int, api_key: str, model: str, host: str = "127.0.0.1"
+    ) -> None:
         config_path = self.CONFIG_PATH
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -55,15 +54,17 @@ class CodexIntegration(Integration):
         new_lines = []
         in_any_section = False
         in_omlx_section = False
-        
+
         # Keys to override at the top level
         top_level_overrides = {
             "model": f'"{model or "select-a-model"}"',
-            "model_provider": '"omlx"'
+            "model_provider": '"omlx"',
         }
-        
+
         # If it is a reasoning model, add reasoning effort
-        is_reasoning = bool(re.search(r'\b(thinking|o1|o3|r1)\b', (model or "").lower()))
+        is_reasoning = bool(
+            re.search(r"\b(thinking|o1|o3|r1)\b", (model or "").lower())
+        )
         if is_reasoning:
             top_level_overrides["model_reasoning_effort"] = '"high"'
 
@@ -76,7 +77,7 @@ class CodexIntegration(Integration):
             stripped = line.strip()
             if stripped.startswith("[") and stripped.endswith("]"):
                 in_any_section = True
-                in_omlx_section = (stripped == "[model_providers.omlx]")
+                in_omlx_section = stripped == "[model_providers.omlx]"
 
             # Handle top-level keys
             if not in_any_section and "=" in stripped:
@@ -87,11 +88,11 @@ class CodexIntegration(Integration):
                     continue
                 if key in managed_keys:
                     continue
-            
+
             # Skip old oMLX section
             if in_omlx_section:
                 continue
-                
+
             new_lines.append(line)
 
         # Add missing top-level keys

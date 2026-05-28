@@ -10,7 +10,7 @@ SECURITY NOTE: This benchmark executes model-generated code on the local
 machine. Mitigations: subprocess with timeout, memory limits, temp file cleanup.
 """
 
-import json
+import contextlib
 import logging
 import os
 import re
@@ -18,11 +18,11 @@ import resource
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Optional
 
-from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .base import BaseBenchmark
 from .constants import EXEC_MEMORY_LIMIT_BYTES, EXEC_TIMEOUT_SECONDS
 from .datasets import deterministic_sample, load_jsonl
+from .utils import extract_last_code_block
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 def _get_imports(prompt: str) -> str:
     """Extract import lines from the prompt."""
-    lines = []
+    lines: list[str] = []
     for line in prompt.split("\n"):
         stripped = line.strip()
         if stripped.startswith("import ") or stripped.startswith("from "):
@@ -54,8 +54,10 @@ def _extract_code(response: str, prompt: str) -> str:
     if match:
         code = match.group(1).strip()
         if "def " in code:
-            # Model included full function — prepend imports if missing
-            if imports and not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
+            if imports and not any(
+                line.strip().startswith(("import ", "from "))
+                for line in code.split("\n")
+            ):
                 return imports + "\n\n" + code
             return code
         return prompt + code
@@ -64,37 +66,40 @@ def _extract_code(response: str, prompt: str) -> str:
     if match:
         code = match.group(1).strip()
         if "def " in code:
-            if imports and not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
+            if imports and not any(
+                line.strip().startswith(("import ", "from "))
+                for line in code.split("\n")
+            ):
                 return imports + "\n\n" + code
             return code
         return prompt + code
 
     # No code block — response is the continuation of the prompt
     if response.startswith("def "):
-        # Model repeated the function def — prepend imports
         if imports:
             return imports + "\n\n" + response
         return response
     if response.startswith("from ") or response.startswith("import "):
         return response
 
-    # Response is just the function body — combine with prompt
     return prompt + response
 
 
 def _set_resource_limits():
     """Set resource limits for subprocess."""
-    try:
-        resource.setrlimit(resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES, EXEC_MEMORY_LIMIT_BYTES))
-    except (ValueError, resource.error):
-        pass
-    try:
-        resource.setrlimit(resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS + 5, EXEC_TIMEOUT_SECONDS + 5))
-    except (ValueError, resource.error):
-        pass
+    with contextlib.suppress(OSError, ValueError):
+        resource.setrlimit(
+            resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES, EXEC_MEMORY_LIMIT_BYTES)
+        )
+    with contextlib.suppress(OSError, ValueError):
+        resource.setrlimit(
+            resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS + 5, EXEC_TIMEOUT_SECONDS + 5)
+        )
 
 
-def _execute_with_tests(code: str, test_code: str, entry_point: str) -> tuple[bool, str]:
+def _execute_with_tests(
+    code: str, test_code: str, entry_point: str
+) -> tuple[bool, str]:
     """Execute generated code with test cases.
 
     Combines the generated function with test assertions and runs in subprocess.
@@ -135,10 +140,8 @@ check({entry_point})
     except Exception as e:
         return False, str(e)[:500]
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
 
 
 class HumanEvalBenchmark(BaseBenchmark):
@@ -153,13 +156,15 @@ class HumanEvalBenchmark(BaseBenchmark):
 
         normalized = []
         for item in items:
-            normalized.append({
-                "id": item["task_id"],
-                "prompt": item["prompt"],
-                "test": item["test"],
-                "entry_point": item["entry_point"],
-                "question": item["prompt"],  # for get_question_text
-            })
+            normalized.append(
+                {
+                    "id": item["task_id"],
+                    "prompt": item["prompt"],
+                    "test": item["test"],
+                    "entry_point": item["entry_point"],
+                    "question": item["prompt"],  # for get_question_text
+                }
+            )
 
         logger.info(f"HumanEval: loaded {len(normalized)} problems")
 
@@ -183,16 +188,15 @@ class HumanEvalBenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         """Extract the complete function from model response."""
-        # Use last code block to avoid picking drafts/examples
-        code = self._extract_last_code_block(response)
+        code = extract_last_code_block(response)
         imports = _get_imports(item["prompt"])
 
-        # If extracted code has function def but no imports, prepend from prompt
-        if "def " in code and imports:
-            if not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
-                return imports + "\n\n" + code
+        if "def " in code and imports and not any(
+            line.strip().startswith(("import ", "from "))
+            for line in code.split("\n")
+        ):
+            return imports + "\n\n" + code
 
-        # If no function def found, combine prompt + response body
         if "def " not in code:
             return item["prompt"] + code
 

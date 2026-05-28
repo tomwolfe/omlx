@@ -26,9 +26,7 @@ def _write_mtp_index(tmp_path, has_mtp: bool) -> None:
     if has_mtp:
         keys["language_model.mtp.fc.weight"] = "model.safetensors"
     (tmp_path / "model.safetensors.index.json").write_text(
-        '{"metadata": {}, "weight_map": '
-        + str(keys).replace("'", '"')
-        + "}"
+        '{"metadata": {}, "weight_map": ' + str(keys).replace("'", '"') + "}"
     )
 
 
@@ -408,9 +406,7 @@ class TestCheckpointHasMtpWeights:
 
     def test_returns_false_for_nonexistent_path(self, tmp_path):
         assert (
-            model_loading._checkpoint_has_mtp_weights(
-                str(tmp_path / "does-not-exist")
-            )
+            model_loading._checkpoint_has_mtp_weights(str(tmp_path / "does-not-exist"))
             is False
         )
 

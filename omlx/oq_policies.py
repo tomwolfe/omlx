@@ -8,9 +8,14 @@ registry maps model-architecture keys to the policy that handles them.
 
 from __future__ import annotations
 
-import re
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Union
+from typing import Any
+
+from .oq_constants import (
+    _LEVEL_BITS,
+    _LEVEL_PROTECTION,
+    _extract_layer_index,
+)
 
 
 class QuantizationPolicy(ABC):
@@ -29,8 +34,7 @@ class QuantizationPolicy(ABC):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
-        ...
+    ) -> bool | dict: ...
 
 
 # ---------------------------------------------------------------------------
@@ -56,9 +60,7 @@ class MoEPolicy(QuantizationPolicy):
     def _is_router(self, path: str) -> bool:
         if path.endswith(".gate") and "gate_proj" not in path:
             return True
-        if ".gate." in path and "gate_proj" not in path:
-            return True
-        return False
+        return bool(".gate." in path and "gate_proj" not in path)
 
     def evaluate(
         self,
@@ -66,20 +68,22 @@ class MoEPolicy(QuantizationPolicy):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
+    ) -> bool | dict:
         num_experts = (
-            config.get("num_local_experts")
-            or config.get("num_experts", 0)
-            or 0
+            config.get("num_local_experts") or config.get("num_experts", 0) or 0
         )
 
         # switch_mlp paths get explicit bit control before router detection
         if "switch_mlp" in path:
             if "gate_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(4)
             if "down_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(3)
 
         # Shared expert (non-gate) gets 8-bit protection
@@ -93,10 +97,14 @@ class MoEPolicy(QuantizationPolicy):
         # High-parameter expert paths get tighter quantization
         if num_experts >= 512:
             if "gate_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(4)
             if "down_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(3)
 
         return True
@@ -127,7 +135,7 @@ class SsmPolicy(QuantizationPolicy):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
+    ) -> bool | dict:
         path_l = path.lower()
 
         # SSM-sensitive parameters stay fp16
@@ -140,12 +148,16 @@ class SsmPolicy(QuantizationPolicy):
 
         # conv1d inside linear_attn → 8-bit
         if "conv1d" in path_l and "linear_attn" in path_l:
-            bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+            bits_fn = _bits_fn or (
+                lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+            )
             return bits_fn(8)
 
         # linear_attn.out_proj → 5-bit
         if "linear_attn.out_proj" in path_l:
-            bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+            bits_fn = _bits_fn or (
+                lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+            )
             return bits_fn(5)
 
         return True
@@ -171,7 +183,7 @@ class QwenMoEPolicy(QuantizationPolicy):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
+    ) -> bool | dict:
         path_l = path.lower()
 
         # Qwen3_5 hybrid: dt_bias drives discretization, keep fp16
@@ -180,12 +192,16 @@ class QwenMoEPolicy(QuantizationPolicy):
 
         # conv1d inside linear_attn → 8-bit
         if "conv1d" in path_l and "linear_attn" in path_l:
-            bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+            bits_fn = _bits_fn or (
+                lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+            )
             return bits_fn(8)
 
         # linear_attn.out_proj mirrors self_attn.o_proj sensitivity
         if "linear_attn.out_proj" in path_l:
-            bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+            bits_fn = _bits_fn or (
+                lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+            )
             return bits_fn(5)
 
         return True
@@ -218,10 +234,8 @@ class VlmPolicy(QuantizationPolicy):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
-        if any(p in path for p in self._VISION_PATTERNS):
-            return False
-        return True
+    ) -> bool | dict:
+        return not any(p in path for p in self._VISION_PATTERNS)
 
 
 class AudioPolicy(QuantizationPolicy):
@@ -239,20 +253,22 @@ class AudioPolicy(QuantizationPolicy):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
+    ) -> bool | dict:
         num_experts = (
-            config.get("num_local_experts")
-            or config.get("num_experts", 0)
-            or 0
+            config.get("num_local_experts") or config.get("num_experts", 0) or 0
         )
 
         # switch_mlp paths get explicit bit control before router detection
         if "switch_mlp" in path:
             if "gate_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(4)
             if "down_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(3)
 
         # Shared expert (non-gate) gets 8-bit protection
@@ -266,10 +282,14 @@ class AudioPolicy(QuantizationPolicy):
         # High-parameter expert paths get tighter quantization
         if num_experts >= 512:
             if "gate_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(4)
             if "down_proj" in path and "shared_expert" not in path:
-                bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+                bits_fn = _bits_fn or (
+                    lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+                )
                 return bits_fn(3)
 
         return True
@@ -341,12 +361,9 @@ class DefaultPolicy(QuantizationPolicy):
         config: dict,
         oq_level: float,
         _bits_fn: Any,
-    ) -> Union[bool, dict]:
-        path_l = path.lower()
+    ) -> bool | dict:
         num_experts = (
-            config.get("num_local_experts")
-            or config.get("num_experts", 0)
-            or 0
+            config.get("num_local_experts") or config.get("num_experts", 0) or 0
         )
         is_moe = num_experts > 0
         base_bits = int(_LEVEL_BITS.get(oq_level, oq_level))
@@ -355,16 +372,17 @@ class DefaultPolicy(QuantizationPolicy):
 
         # Layer sensitivity tracking
         layer_idx = _extract_layer_index(path)
-        num_layers = config.get("num_hidden_layers") or config.get("text_config", {}).get("num_hidden_layers", 32)
+        num_layers = config.get("num_hidden_layers") or config.get(
+            "text_config", {}
+        ).get("num_hidden_layers", 32)
         layer_idx = _extract_layer_index(path)
-        sensitive = (
-            layer_idx >= 0 and (
-                layer_idx < num_layers // 8
-                or layer_idx >= 7 * num_layers // 8
-            )
+        sensitive = layer_idx >= 0 and (
+            layer_idx < num_layers // 8 or layer_idx >= 7 * num_layers // 8
         )
 
-        _bits_fn = _bits_fn or (lambda n: {"bits": n, "group_size": 64, "mode": "affine"})
+        _bits_fn = _bits_fn or (
+            lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
+        )
 
         if not full_protection:
             # Output sensitivity
@@ -376,16 +394,20 @@ class DefaultPolicy(QuantizationPolicy):
                 return _bits_fn(base_bits + 2)
 
             # MoE high-parameter expert paths
-            if num_experts >= 512:
-                if "gate_proj" in path and "shared_expert" not in path:
-                    return _bits_fn(4)
+            if (
+                num_experts >= 512
+                and "gate_proj" in path
+                and "shared_expert" not in path
+            ):
+                return _bits_fn(4)
 
             # Layer sensitivity
-            if layer_idx >= 0:
-                if sensitive and not any(
-                    p in path for p in ("switch_mlp", "experts")
-                ):
-                    return _bits_fn(base_bits + 1)
+            if (
+                layer_idx >= 0
+                and sensitive
+                and not any(p in path for p in ("switch_mlp", "experts"))
+            ):
+                return _bits_fn(base_bits + 1)
 
             return True
 
@@ -407,13 +429,15 @@ class DefaultPolicy(QuantizationPolicy):
             return _bits_fn(6)
 
         # KV projection → 6-bit
-        if any(p in path for p in ("kv_a_proj_with_mqa", "kv_b_proj", "q_a_proj", "q_b_proj")):
+        if any(
+            p in path
+            for p in ("kv_a_proj_with_mqa", "kv_b_proj", "q_a_proj", "q_b_proj")
+        ):
             return _bits_fn(6)
 
         # o_proj (non-MoE) → 5-bit
-        if "o_proj" in path and "shared_expert" not in path:
-            if not is_moe:
-                return _bits_fn(5)
+        if "o_proj" in path and "shared_expert" not in path and not is_moe:
+            return _bits_fn(5)
 
         # Shared expert → 8-bit
         if "shared_expert" in path and not path.endswith("shared_expert_gate"):
@@ -434,8 +458,10 @@ class DefaultPolicy(QuantizationPolicy):
 
         # down_proj, w2, mlp.fc2, wo
         if any(p in path for p in ("down_proj", "w2", "mlp.fc2", "wo")):
-            is_routed_expert = is_moe and "shared_expert" not in path and (
-                "switch_mlp" in path or "experts" in path
+            is_routed_expert = (
+                is_moe
+                and "shared_expert" not in path
+                and ("switch_mlp" in path or "experts" in path)
             )
             if is_routed_expert:
                 if oq_level == 3.5:
@@ -446,14 +472,12 @@ class DefaultPolicy(QuantizationPolicy):
             return _bits_fn(5)
 
         # q_proj, k_proj → sensitive → 5-bit
-        if any(p in path for p in self._ATTN_Q_SENSITIVE):
-            if sensitive:
-                return _bits_fn(5)
+        if any(p in path for p in self._ATTN_Q_SENSITIVE) and sensitive:
+            return _bits_fn(5)
 
         # qkv_proj, in_proj_qkv, attn_qkv → sensitive → 5-bit
-        if any(p in path for p in self._QKV_SENSITIVE):
-            if sensitive:
-                return _bits_fn(5)
+        if any(p in path for p in self._QKV_SENSITIVE) and sensitive:
+            return _bits_fn(5)
 
         # in_proj_z/a/b, delta_net → 5-bit
         if any(p in path for p in self._DELTA_SENSITIVE):
@@ -481,7 +505,6 @@ _REGISTRY: dict[str, QuantizationPolicy] = {
 
 
 # Re-export _bits_fn_factory for use by oq.py
-from .oq_constants import _bits_fn_factory
 
 
 def _num_experts_from_config(config: dict) -> int:
@@ -543,18 +566,6 @@ def get_policy_for_model(
 
     return DefaultPolicy()
 
-
-# ---------------------------------------------------------------------------
-# Compatibility helpers (imported by oq.py)
-# ---------------------------------------------------------------------------
-
-from .oq_constants import (
-    _LEVEL_BITS,
-    _LEVEL_PROTECTION,
-    _OQ_DEFAULT_GROUP_SIZE,
-    _extract_layer_index,
-    _mode_for_bits,
-)
 
 __all__ = [
     "QuantizationPolicy",

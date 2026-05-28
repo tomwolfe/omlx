@@ -23,8 +23,12 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
-ModelType = Literal["llm", "vlm", "embedding", "reranker", "audio_stt", "audio_tts", "audio_sts"]
-EngineType = Literal["batched", "vlm", "embedding", "reranker", "audio_stt", "audio_tts", "audio_sts"]
+ModelType = Literal[
+    "llm", "vlm", "embedding", "reranker", "audio_stt", "audio_tts", "audio_sts"
+]
+EngineType = Literal[
+    "batched", "vlm", "embedding", "reranker", "audio_stt", "audio_tts", "audio_sts"
+]
 
 # Known VLM (Vision-Language Model) types from mlx-vlm
 VLM_MODEL_TYPES = {
@@ -157,7 +161,9 @@ UNSUPPORTED_RERANKER_ARCHITECTURES = {
 }
 
 # All known reranker architectures (for model type detection)
-RERANKER_ARCHITECTURES = SUPPORTED_RERANKER_ARCHITECTURES | UNSUPPORTED_RERANKER_ARCHITECTURES
+RERANKER_ARCHITECTURES = (
+    SUPPORTED_RERANKER_ARCHITECTURES | UNSUPPORTED_RERANKER_ARCHITECTURES
+)
 
 # Unsupported model types — detected and skipped during discovery.
 # Only top-level config fields are checked; nested audio_config/tts_config in
@@ -201,16 +207,21 @@ def _build_audio_detection_sets():
         def _dir_names(subdir: str) -> set:
             d = _base / subdir / "models"
             if d.is_dir():
-                return {p.name for p in d.iterdir()
-                        if p.is_dir() and not p.name.startswith("__")}
+                return {
+                    p.name
+                    for p in d.iterdir()
+                    if p.is_dir() and not p.name.startswith("__")
+                }
             return set()
 
         # TTS: MODEL_REMAPPING keys + model dir names
         from mlx_audio.tts.utils import MODEL_REMAPPING as _tts_remap
+
         tts = set(_tts_remap.keys()) | _dir_names("tts")
 
         # STT: MODEL_REMAPPING keys + model dir names
         from mlx_audio.stt.utils import MODEL_REMAPPING as _stt_remap
+
         stt = set(_stt_remap.keys()) | _dir_names("stt")
 
         # STS: model dir names only (no unified utils/remapping)
@@ -221,8 +232,10 @@ def _build_audio_detection_sets():
         stt -= _LLM_TYPE_COLLISIONS
 
         logger.debug(
-            "Audio detection sets loaded from mlx-audio: "
-            "STT=%d, TTS=%d, STS=%d", len(stt), len(tts), len(sts),
+            "Audio detection sets loaded from mlx-audio: STT=%d, TTS=%d, STS=%d",
+            len(stt),
+            len(tts),
+            len(sts),
         )
         return stt, tts, sts
 
@@ -230,7 +243,15 @@ def _build_audio_detection_sets():
         logger.debug("mlx-audio not available — using static audio detection sets")
         # Static fallback so model discovery still works without mlx-audio
         _stt = {"whisper", "qwen3_asr", "parakeet", "qwen2_audio"}
-        _tts = {"qwen3_tts", "kokoro", "chatterbox", "vibevoice", "vibevoice_streaming", "kugelaudio", "audiodit"}
+        _tts = {
+            "qwen3_tts",
+            "kokoro",
+            "chatterbox",
+            "vibevoice",
+            "vibevoice_streaming",
+            "kugelaudio",
+            "audiodit",
+        }
         _sts = {"deepfilternet", "mossformer2_se", "sam_audio", "lfm_audio"}
         return _stt, _tts, _sts
 
@@ -274,9 +295,15 @@ class DiscoveredModel:
     model_type: ModelType  # "llm", "vlm", "embedding", or "reranker"
     engine_type: EngineType  # "batched", "vlm", "embedding", or "reranker"
     estimated_size: int  # Estimated memory usage in bytes
-    config_model_type: str = ""  # Raw model_type from config.json (e.g., "deepseekocr_2")
-    thinking_default: bool | None = None  # True if model thinks by default, False if not, None if unknown
-    preserve_thinking_default: bool | None = None  # True when template supports preserve_thinking (Qwen 3.6+)
+    config_model_type: str = (
+        ""  # Raw model_type from config.json (e.g., "deepseekocr_2")
+    )
+    thinking_default: bool | None = (
+        None  # True if model thinks by default, False if not, None if unknown
+    )
+    preserve_thinking_default: bool | None = (
+        None  # True when template supports preserve_thinking (Qwen 3.6+)
+    )
 
 
 def _is_unsupported_model(model_path: Path) -> bool:
@@ -297,7 +324,7 @@ def _is_unsupported_model(model_path: Path) -> bool:
     try:
         with open(config_path) as f:
             config = json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return False
 
     architectures = config.get("architectures", [])
@@ -307,7 +334,9 @@ def _is_unsupported_model(model_path: Path) -> bool:
 
     model_type = config.get("model_type", "")
     normalized = model_type.lower().replace("-", "_")
-    return normalized in UNSUPPORTED_MODEL_TYPES or model_type in UNSUPPORTED_MODEL_TYPES
+    return (
+        normalized in UNSUPPORTED_MODEL_TYPES or model_type in UNSUPPORTED_MODEL_TYPES
+    )
 
 
 def _is_causal_lm_reranker(model_path: Path) -> bool:
@@ -351,16 +380,14 @@ def _has_sentence_transformers_embedding_pipeline(model_path: Path) -> bool:
     try:
         with open(modules_path) as f:
             modules = json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return False
 
     if not isinstance(modules, list):
         return False
 
     module_types = {
-        module.get("type", "")
-        for module in modules
-        if isinstance(module, dict)
+        module.get("type", "") for module in modules if isinstance(module, dict)
     }
     if "sentence_transformers.models.Transformer" not in module_types:
         return False
@@ -423,7 +450,7 @@ def detect_model_type(model_path: Path) -> ModelType:
     try:
         with open(config_path) as f:
             config = json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return "llm"
 
     # Check architectures field for reranker first (more specific)
@@ -453,9 +480,13 @@ def detect_model_type(model_path: Path) -> ModelType:
     # directory name heuristic. Must come before VLM detection below so
     # the reranker/embedding hint wins over default VLM classification.
     for arch in architectures:
-        if arch in MULTIMODAL_RERANKER_ARCHITECTURES and _is_causal_lm_reranker(model_path):
+        if arch in MULTIMODAL_RERANKER_ARCHITECTURES and _is_causal_lm_reranker(
+            model_path
+        ):
             return "reranker"
-        if arch in MULTIMODAL_EMBEDDING_ARCHITECTURES and _is_causal_lm_embedding(model_path):
+        if arch in MULTIMODAL_EMBEDDING_ARCHITECTURES and _is_causal_lm_embedding(
+            model_path
+        ):
             return "embedding"
 
     if _has_sentence_transformers_embedding_pipeline(model_path):
@@ -547,7 +578,10 @@ def detect_model_type(model_path: Path) -> ModelType:
     if normalized_type in AUDIO_STS_MODEL_TYPES or model_type in AUDIO_STS_MODEL_TYPES:
         return "audio_sts"
     # LFM2 audio: model_type starts with "lfm" and is not an embedding
-    if normalized_type.startswith("lfm") and normalized_type not in EMBEDDING_MODEL_TYPES:
+    if (
+        normalized_type.startswith("lfm")
+        and normalized_type not in EMBEDDING_MODEL_TYPES
+    ):
         return "audio_sts"
 
     return "llm"
@@ -741,6 +775,7 @@ def _register_model(
         config_model_type = ""
         try:
             import json
+
             with open(model_dir / "config.json") as f:
                 config_model_type = json.load(f).get("model_type", "")
         except Exception:

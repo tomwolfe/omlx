@@ -19,6 +19,7 @@ When mlx-lm merges PR 1192 upstream this patch should be removed.
 
 from __future__ import annotations
 
+import contextlib
 import glob
 import importlib.util
 import json
@@ -253,10 +254,8 @@ def apply_utils_patch() -> bool:
             continue
         existing = getattr(mod, "load_model", None)
         if existing is not None and existing is not patched:
-            try:
+            with contextlib.suppress(Exception):
                 mod.load_model = patched
-            except Exception:
-                pass
 
     _PATCHED = True
     logger.info("mlx_lm.utils.load_model replaced (deepseek_v4 fp8 + F8_E8M0 fallback)")

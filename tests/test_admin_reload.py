@@ -4,10 +4,8 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-import omlx.server  # noqa: F401 — ensure server module is imported first
 import omlx.admin.routes as admin_routes
+import omlx.server  # noqa: F401 — ensure server module is imported first
 
 
 def _setup_mocks(

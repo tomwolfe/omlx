@@ -313,9 +313,7 @@ def _has_mtp_heads(config: dict) -> bool:
     text_cfg = config.get("text_config") or {}
     if int(text_cfg.get("mtp_num_hidden_layers", 0) or 0) > 0:
         return True
-    if int(text_cfg.get("num_nextn_predict_layers", 0) or 0) > 0:
-        return True
-    return False
+    return int(text_cfg.get("num_nextn_predict_layers", 0) or 0) > 0
 
 
 _MTP_WEIGHT_PREFIXES = (
@@ -350,13 +348,9 @@ def _checkpoint_has_mtp_weights(model_path: str | Path) -> bool:
         try:
             data = json.loads(index_path.read_text())
             weight_map = data.get("weight_map") or {}
-            return any(
-                k.startswith(_MTP_WEIGHT_PREFIXES) for k in weight_map
-            )
+            return any(k.startswith(_MTP_WEIGHT_PREFIXES) for k in weight_map)
         except Exception as e:
-            logger.debug(
-                "Failed to read %s for mtp weight scan: %s", index_path, e
-            )
+            logger.debug("Failed to read %s for mtp weight scan: %s", index_path, e)
 
     shards = sorted(p.glob("*.safetensors"))
     if not shards:
@@ -365,13 +359,11 @@ def _checkpoint_has_mtp_weights(model_path: str | Path) -> bool:
         import safetensors
 
         with safetensors.safe_open(str(shards[0]), framework="numpy") as f:
-            for k in f.keys():
+            for k in f:
                 if k.startswith(_MTP_WEIGHT_PREFIXES):
                     return True
     except Exception as e:
-        logger.debug(
-            "Failed to read %s header for mtp weight scan: %s", shards[0], e
-        )
+        logger.debug("Failed to read %s header for mtp weight scan: %s", shards[0], e)
     return False
 
 

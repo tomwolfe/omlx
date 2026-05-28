@@ -3,12 +3,12 @@
 
 import time
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class IDPrefix(str, Enum):
+class IDPrefix(StrEnum):
     """Prefixes for generated IDs."""
 
     CHAT_COMPLETION = "chatcmpl"
@@ -67,7 +67,9 @@ class BaseUsage(BaseModel):
 
     def model_post_init(self, __context) -> None:
         """Calculate total_tokens and sync Anthropic-style aliases."""
-        if self.total_tokens == 0 and (self.prompt_tokens > 0 or self.completion_tokens > 0):
+        if self.total_tokens == 0 and (
+            self.prompt_tokens > 0 or self.completion_tokens > 0
+        ):
             object.__setattr__(
                 self,
                 "total_tokens",

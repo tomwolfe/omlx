@@ -20,7 +20,7 @@ Architecture:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -58,16 +58,16 @@ class VLMModelAdapter(nn.Module):
         self._uses_mrope = self._detect_mrope(vlm_model)
 
         # Pending vision embeddings state (set before prefill, cleared after)
-        self._pending_embeds: Optional[mx.array] = None
-        self._pending_kwargs: Dict[str, Any] = {}
+        self._pending_embeds: mx.array | None = None
+        self._pending_kwargs: dict[str, Any] = {}
         self._embed_offset: int = 0
 
         # Per-request mRoPE state: UID → rope_delta mapping.
         # Populated by scheduler after VLM prefill, consumed during decode.
         # The _patched_generation_batch_step builds _batch_rope_deltas
         # from this dict + current batch UIDs before each step.
-        self._uid_rope_deltas: Dict[int, float] = {}
-        self._batch_rope_deltas: Optional[mx.array] = None
+        self._uid_rope_deltas: dict[int, float] = {}
+        self._batch_rope_deltas: mx.array | None = None
 
     @property
     def layers(self):
@@ -92,7 +92,9 @@ class VLMModelAdapter(nn.Module):
     @property
     def model_type(self) -> str:
         """Expose model_type for config access."""
-        if hasattr(self._vlm_model, "config") and hasattr(self._vlm_model.config, "model_type"):
+        if hasattr(self._vlm_model, "config") and hasattr(
+            self._vlm_model.config, "model_type"
+        ):
             return self._vlm_model.config.model_type
         return "vlm"
 
@@ -108,7 +110,7 @@ class VLMModelAdapter(nn.Module):
             return self._language_model.args
         return self.config
 
-    def make_cache(self) -> List[Any]:
+    def make_cache(self) -> list[Any]:
         """
         Create KV cache using the language model's make_cache().
 
@@ -119,12 +121,13 @@ class VLMModelAdapter(nn.Module):
         if hasattr(self._language_model, "make_cache"):
             return self._language_model.make_cache()
         from mlx_lm.models.cache import KVCache
+
         return [KVCache() for _ in range(len(self.layers))]
 
     def set_pending_embeddings(
         self,
         inputs_embeds: mx.array,
-        extra_kwargs: Optional[Dict[str, Any]] = None,
+        extra_kwargs: dict[str, Any] | None = None,
         start_offset: int = 0,
     ) -> None:
         """
@@ -220,7 +223,7 @@ class VLMModelAdapter(nn.Module):
     def __call__(
         self,
         input_ids: mx.array,
-        cache: Optional[List[Any]] = None,
+        cache: list[Any] | None = None,
         **kwargs,
     ) -> Any:
         """
@@ -256,7 +259,11 @@ class VLMModelAdapter(nn.Module):
         elif self._pending_embeds is not None:
             result = self._forward_with_embeddings(input_ids, cache, **kwargs)
         else:
-            if self._uses_mrope and self._batch_rope_deltas is not None and cache is not None:
+            if (
+                self._uses_mrope
+                and self._batch_rope_deltas is not None
+                and cache is not None
+            ):
                 offsets = None
                 for c in cache:
                     if hasattr(c, "offset"):
@@ -264,12 +271,13 @@ class VLMModelAdapter(nn.Module):
                         break
                 B, L = input_ids.shape
                 deltas = self._batch_rope_deltas
-                if (offsets is not None and isinstance(offsets, mx.array)
-                        and deltas.size == B):
+                if (
+                    offsets is not None
+                    and isinstance(offsets, mx.array)
+                    and deltas.size == B
+                ):
                     positions = offsets + deltas
-                    position_ids = mx.broadcast_to(
-                        positions[None, :, None], (3, B, L)
-                    )
+                    position_ids = mx.broadcast_to(positions[None, :, None], (3, B, L))
                     # Decode never adds new image tokens; the broadcast
                     # collapses the 3 mRoPE sections to identical values,
                     # so the patched Qwen3_5Attention can skip its per-layer
@@ -279,28 +287,26 @@ class VLMModelAdapter(nn.Module):
                             input_ids, cache=cache, position_ids=position_ids, **kwargs
                         )
                 else:
-                    result = self._language_model(
-                        input_ids, cache=cache, **kwargs
-                    )
+                    result = self._language_model(input_ids, cache=cache, **kwargs)
             elif self._uses_mrope and cache is not None:
                 offsets = None
                 for c in cache:
-                    if hasattr(c, "offset") and isinstance(c.offset, mx.array) and c.offset.ndim > 0:
+                    if (
+                        hasattr(c, "offset")
+                        and isinstance(c.offset, mx.array)
+                        and c.offset.ndim > 0
+                    ):
                         offsets = c.offset
                         break
                 if offsets is not None:
                     B, L = input_ids.shape
-                    position_ids = mx.broadcast_to(
-                        offsets[None, :, None], (3, B, L)
-                    )
+                    position_ids = mx.broadcast_to(offsets[None, :, None], (3, B, L))
                     with force_text_only_rope():
                         result = self._language_model(
                             input_ids, cache=cache, position_ids=position_ids, **kwargs
                         )
                 else:
-                    result = self._language_model(
-                        input_ids, cache=cache, **kwargs
-                    )
+                    result = self._language_model(input_ids, cache=cache, **kwargs)
             else:
                 if hasattr(self._vlm_model, "_set_position_state"):
                     self._vlm_model._set_position_state(input_ids)
@@ -313,7 +319,7 @@ class VLMModelAdapter(nn.Module):
     def _forward_with_embeddings(
         self,
         input_ids: mx.array,
-        cache: Optional[List[Any]] = None,
+        cache: list[Any] | None = None,
         **kwargs,
     ) -> Any:
         """Forward pass with pre-computed vision embeddings (prefill phase)."""
@@ -321,7 +327,7 @@ class VLMModelAdapter(nn.Module):
         total_len = self._pending_embeds.shape[1]
 
         end_offset = min(self._embed_offset + chunk_len, total_len)
-        chunk_embeds = self._pending_embeds[:, self._embed_offset:end_offset, :]
+        chunk_embeds = self._pending_embeds[:, self._embed_offset : end_offset, :]
 
         result = self._language_model(
             input_ids,
@@ -338,7 +344,9 @@ class VLMModelAdapter(nn.Module):
 
         return result
 
-    def get_input_embeddings(self, input_ids: mx.array, pixel_values: Optional[mx.array] = None, **kwargs) -> Any:
+    def get_input_embeddings(
+        self, input_ids: mx.array, pixel_values: mx.array | None = None, **kwargs
+    ) -> Any:
         """
         Compute vision+text merged embeddings.
 

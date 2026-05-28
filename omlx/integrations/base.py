@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from omlx.exceptions import ValidationError
+
 
 @dataclass
 class Integration:
@@ -27,11 +29,15 @@ class Integration:
         """Generate the command string for clipboard/display."""
         raise NotImplementedError
 
-    def configure(self, port: int, api_key: str, model: str, host: str = "127.0.0.1") -> None:
+    def configure(
+        self, port: int, api_key: str, model: str, host: str = "127.0.0.1"
+    ) -> None:
         """Configure the tool (write config files, etc.)."""
         pass
 
-    def launch(self, port: int, api_key: str, model: str, host: str = "127.0.0.1", **kwargs) -> None:
+    def launch(
+        self, port: int, api_key: str, model: str, host: str = "127.0.0.1", **kwargs
+    ) -> None:
         """Configure and launch the tool."""
         raise NotImplementedError
 
@@ -235,8 +241,9 @@ def _select_model_curses(models_info: list[dict], tool_name: str) -> str:
     curses.wrapper(_picker)
 
     if not selected:
-        print("No model selected.")
-        # 130 is the conventional shell exit code for SIGINT/cancel.
-        sys.exit(130)
+        raise ValidationError(
+            "No model selected (user cancelled or closed picker).",
+            field="model_selection",
+        )
 
     return selected[0]

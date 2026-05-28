@@ -3,8 +3,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestBuildLayerPattern:
     """Test _build_layer_pattern function."""

@@ -3,10 +3,9 @@
 from unittest.mock import MagicMock, patch
 
 import mlx.core as mx
-import pytest
 
 from omlx.engine_core import EngineCore
-from omlx.scheduler import Scheduler, SchedulerConfig
+from omlx.scheduler import Scheduler
 
 
 class TestSchedulerStreamParam:
@@ -54,23 +53,28 @@ class TestSchedulerStreamIsolation:
         import re
 
         import omlx.scheduler as sched_mod
+
         source = inspect.getsource(sched_mod.Scheduler)
 
         # Find bare generation_stream references that aren't:
         # - _default_generation_stream (the import alias)
         # - Part of a larger word
-        bare_refs = re.findall(
-            r'(?<!_default_)(?<!self\._)(?<!\w)generation_stream(?!\w)',
+        re.findall(
+            r"(?<!_default_)(?<!self\._)(?<!\w)generation_stream(?!\w)",
             source,
         )
         # Filter out string literals and comments by checking lines
         code_refs = []
         for line in source.splitlines():
             stripped = line.strip()
-            if stripped.startswith('#') or stripped.startswith('"') or stripped.startswith("'"):
+            if (
+                stripped.startswith("#")
+                or stripped.startswith('"')
+                or stripped.startswith("'")
+            ):
                 continue
             matches = re.findall(
-                r'(?<!_default_)(?<!self\._)(?<!\w)generation_stream(?!\w)',
+                r"(?<!_default_)(?<!self\._)(?<!\w)generation_stream(?!\w)",
                 line,
             )
             code_refs.extend(matches)
@@ -97,6 +101,7 @@ class TestMtpStreamIsolation:
     def test_mtp_source_no_module_level_stream_read(self):
         """MTP patch source must not read sys.modules generation_stream."""
         import inspect
+
         import omlx.patches.mlx_lm_mtp.batch_generator as mtp_mod
 
         source = inspect.getsource(mtp_mod)
@@ -214,4 +219,5 @@ class TestConcurrentStreamIsolation:
         )
 
         from omlx.scheduler import _default_generation_stream as current
+
         assert id(current) == original_id

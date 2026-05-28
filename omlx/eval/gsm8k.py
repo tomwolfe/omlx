@@ -8,12 +8,11 @@ Dataset bundled from openai/gsm8k on HuggingFace.
 
 import json
 import logging
-import re
 from pathlib import Path
-from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, load_jsonl
+from .utils import extract_numeric_answer
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +20,6 @@ DATA_DIR = Path(__file__).parent / "data"
 
 # Standard 5-shot examples for GSM8K
 FEW_SHOT_EXAMPLES = json.loads((DATA_DIR / "gsm8k_few_shot.json").read_text())
-
-
-def _extract_numeric_answer(text: str) -> str:
-    """Extract the final numeric answer from a GSM8K-style response.
-
-    Looks for #### pattern first, then falls back to the last number.
-    """
-    match = re.search(r"####\s*(-?[\d,]+(?:\.\d+)?)", text)
-    if match:
-        return match.group(1).replace(",", "")
-
-    numbers = re.findall(r"-?[\d,]+(?:\.\d+)?", text)
-    if numbers:
-        return numbers[-1].replace(",", "")
-
-    return ""
 
 
 def _normalize_number(s: str) -> str:
@@ -64,13 +47,15 @@ class GSM8KBenchmark(BaseBenchmark):
         normalized = []
         for i, item in enumerate(items):
             answer_text = item.get("answer", "")
-            numeric = _extract_numeric_answer(answer_text)
-            normalized.append({
-                "id": str(i),
-                "question": item.get("question", ""),
-                "answer_text": answer_text,
-                "answer": numeric,
-            })
+            numeric = extract_numeric_answer(answer_text)
+            normalized.append(
+                {
+                    "id": str(i),
+                    "question": item.get("question", ""),
+                    "answer_text": answer_text,
+                    "answer": numeric,
+                }
+            )
 
         logger.info(f"GSM8K: loaded {len(normalized)} questions")
 
@@ -99,12 +84,12 @@ class GSM8KBenchmark(BaseBenchmark):
         return [{"role": "user", "content": "\n".join(parts)}]
 
     def extract_answer(self, response: str, item: dict) -> str:
-        return _extract_numeric_answer(response)
+        return extract_numeric_answer(response)
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         if not predicted:
             return False
         return _normalize_number(predicted) == _normalize_number(item["answer"])
 
-    def get_category(self, item: dict) -> Optional[str]:
+    def get_category(self, item: dict) -> str | None:
         return None

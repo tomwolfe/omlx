@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for admin profile/template API routes."""
 
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -28,8 +27,17 @@ class _FakePool:
         return self._entries.get(model_id)
 
     def get_status(self):
-        return {"models": [{"id": "model-a", "loaded": False, "pinned": False,
-                            "engine_type": "batched", "model_type": "llm"}]}
+        return {
+            "models": [
+                {
+                    "id": "model-a",
+                    "loaded": False,
+                    "pinned": False,
+                    "engine_type": "batched",
+                    "model_type": "llm",
+                }
+            ]
+        }
 
 
 class _FakeServerState:
@@ -51,7 +59,9 @@ def client(tmp_path, monkeypatch):
     # Bypass auth
     async def _fake_require_admin():
         return True
+
     from omlx.admin import auth as admin_auth
+
     monkeypatch.setattr(admin_auth, "require_admin", _fake_require_admin)
 
     # Also patch on the router dependency
@@ -70,10 +80,14 @@ class TestProfileRoutes:
 
     def test_create_and_list_profile(self, client):
         c, _ = client
-        r = c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0, "is_pinned": True},
-        })
+        r = c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0, "is_pinned": True},
+            },
+        )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["profile"]["name"] == "coding"
@@ -92,30 +106,47 @@ class TestProfileRoutes:
 
     def test_create_invalid_name_400(self, client):
         c, _ = client
-        r = c.post("/admin/api/models/model-a/profiles", json={
-            "name": "Has Space", "display_name": "x", "settings": {},
-        })
+        r = c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "Has Space",
+                "display_name": "x",
+                "settings": {},
+            },
+        )
         assert r.status_code == 400
 
     def test_update_profile(self, client):
         c, _ = client
-        c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0},
-        })
-        r = c.put("/admin/api/models/model-a/profiles/coding", json={
-            "display_name": "Coding v2",
-            "settings": {"temperature": 0.2},
-        })
+        c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
+        r = c.put(
+            "/admin/api/models/model-a/profiles/coding",
+            json={
+                "display_name": "Coding v2",
+                "settings": {"temperature": 0.2},
+            },
+        )
         assert r.status_code == 200
         assert r.json()["profile"]["display_name"] == "Coding v2"
         assert r.json()["profile"]["settings"]["temperature"] == 0.2
 
     def test_delete_profile(self, client):
         c, _ = client
-        c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding", "settings": {},
-        })
+        c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {},
+            },
+        )
         r = c.delete("/admin/api/models/model-a/profiles/coding")
         assert r.status_code == 200
         assert r.json()["deleted"] is True
@@ -127,10 +158,14 @@ class TestProfileRoutes:
 
     def test_apply_profile_sets_active(self, client):
         c, mgr = client
-        c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0},
-        })
+        c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
         r = c.post("/admin/api/models/model-a/profiles/coding/apply")
         assert r.status_code == 200
         assert r.json()["settings"]["active_profile_name"] == "coding"
@@ -152,11 +187,15 @@ class TestProfileRoutes:
 
     def test_also_save_as_template(self, client):
         c, mgr = client
-        r = c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0, "turboquant_kv_enabled": True},
-            "also_save_as_template": True,
-        })
+        r = c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0, "turboquant_kv_enabled": True},
+                "also_save_as_template": True,
+            },
+        )
         assert r.status_code == 200
         tmpl = mgr.get_template("coding")
         assert tmpl is not None
@@ -173,7 +212,11 @@ def test_all_model_settings_fields_classified():
     )
     from omlx.model_settings import ModelSettings
 
-    classified = set(UNIVERSAL_PROFILE_FIELDS) | set(MODEL_SPECIFIC_PROFILE_FIELDS) | EXCLUDED_FROM_PROFILES
+    classified = (
+        set(UNIVERSAL_PROFILE_FIELDS)
+        | set(MODEL_SPECIFIC_PROFILE_FIELDS)
+        | EXCLUDED_FROM_PROFILES
+    )
     all_fields = {f.name for f in fields(ModelSettings)}
     missing = all_fields - classified
     assert not missing, (
@@ -198,30 +241,51 @@ class TestTemplateRoutes:
 
     def test_create_list_get(self, client):
         c, _ = client
-        r = c.post("/admin/api/profile-templates", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0, "turboquant_kv_enabled": True},
-        })
+        r = c.post(
+            "/admin/api/profile-templates",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0, "turboquant_kv_enabled": True},
+            },
+        )
         assert r.status_code == 200
         # Model-specific field filtered out
         assert r.json()["template"]["settings"] == {"temperature": 0.0}
 
     def test_duplicate_conflicts(self, client):
         c, _ = client
-        c.post("/admin/api/profile-templates", json={
-            "name": "coding", "display_name": "Coding", "settings": {"temperature": 0.0},
-        })
-        r = c.post("/admin/api/profile-templates", json={
-            "name": "coding", "display_name": "Coding", "settings": {"temperature": 0.1},
-        })
+        c.post(
+            "/admin/api/profile-templates",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
+        r = c.post(
+            "/admin/api/profile-templates",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.1},
+            },
+        )
         assert r.status_code == 409
 
     def test_update_delete(self, client):
         c, _ = client
-        c.post("/admin/api/profile-templates", json={
-            "name": "coding", "display_name": "Coding", "settings": {"temperature": 0.0},
-        })
-        r = c.put("/admin/api/profile-templates/coding", json={"display_name": "Coding v2"})
+        c.post(
+            "/admin/api/profile-templates",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
+        r = c.put(
+            "/admin/api/profile-templates/coding", json={"display_name": "Coding v2"}
+        )
         assert r.status_code == 200
         assert r.json()["template"]["display_name"] == "Coding v2"
         r = c.delete("/admin/api/profile-templates/coding")
@@ -233,6 +297,7 @@ def test_request_models_import():
     from omlx.admin.routes import (
         CreateProfileRequest,
     )
+
     # Minimal round-trip
     req = CreateProfileRequest(
         name="coding",
@@ -247,10 +312,14 @@ def test_request_models_import():
 class TestModelsResponseActiveProfile:
     def test_active_profile_surfaces_in_list_models(self, client):
         c, mgr = client
-        c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0},
-        })
+        c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
         c.post("/admin/api/models/model-a/profiles/coding/apply")
         r = c.get("/admin/api/models")
         assert r.status_code == 200
@@ -262,10 +331,14 @@ class TestModelsResponseActiveProfile:
 class TestActiveProfileDriftClearing:
     def test_active_preserved_when_no_drift(self, client):
         c, mgr = client
-        c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0},
-        })
+        c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
         c.post("/admin/api/models/model-a/profiles/coding/apply")
         # Re-save with SAME value
         r = c.put("/admin/api/models/model-a/settings", json={"temperature": 0.0})
@@ -274,10 +347,14 @@ class TestActiveProfileDriftClearing:
 
     def test_active_cleared_on_drift(self, client):
         c, mgr = client
-        c.post("/admin/api/models/model-a/profiles", json={
-            "name": "coding", "display_name": "Coding",
-            "settings": {"temperature": 0.0},
-        })
+        c.post(
+            "/admin/api/models/model-a/profiles",
+            json={
+                "name": "coding",
+                "display_name": "Coding",
+                "settings": {"temperature": 0.0},
+            },
+        )
         c.post("/admin/api/models/model-a/profiles/coding/apply")
         # Change temperature
         r = c.put("/admin/api/models/model-a/settings", json={"temperature": 0.5})

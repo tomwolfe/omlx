@@ -10,7 +10,7 @@ streaming or chat completion.
 import asyncio
 import gc
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import mlx.core as mx
 
@@ -44,7 +44,7 @@ class EmbeddingEngine(BaseNonStreamingEngine):
         super().__init__()
         self._model_name = model_name
         self._trust_remote_code = trust_remote_code
-        self._model: Optional[MLXEmbeddingModel] = None
+        self._model: MLXEmbeddingModel | None = None
 
     @property
     def model_name(self) -> str:
@@ -57,7 +57,7 @@ class EmbeddingEngine(BaseNonStreamingEngine):
         return self._model.processor if self._model else None
 
     @property
-    def hidden_size(self) -> Optional[int]:
+    def hidden_size(self) -> int | None:
         """Get the embedding dimension."""
         return self._model.hidden_size if self._model else None
 
@@ -95,7 +95,7 @@ class EmbeddingEngine(BaseNonStreamingEngine):
 
     async def embed(
         self,
-        texts: Union[List[str], List[Dict[str, str]]],
+        texts: list[str] | list[dict[str, str]],
         max_length: int = 512,
         padding: bool = True,
         truncation: bool = True,
@@ -143,7 +143,7 @@ class EmbeddingEngine(BaseNonStreamingEngine):
         finally:
             await self._finish_activity(activity_id)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get engine statistics."""
         return {
             "model_name": self._model_name,
@@ -151,7 +151,7 @@ class EmbeddingEngine(BaseNonStreamingEngine):
             "hidden_size": self.hidden_size,
         }
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """Get information about the loaded model."""
         if self._model is None:
             return {"loaded": False, "model_name": self._model_name}

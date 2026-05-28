@@ -331,7 +331,6 @@ class TestRequestOutputCollectorClear:
         collector = RequestOutputCollector()
         collector._is_waiting = True
 
-        initial_count = RequestOutputCollector._waiting_consumers
         RequestOutputCollector._waiting_consumers += 1
 
         collector.clear()

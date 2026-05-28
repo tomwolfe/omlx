@@ -16,6 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def apply() -> bool:
     """Attach ``rollback_state = None`` to ``ArraysCache`` (idempotent).
 

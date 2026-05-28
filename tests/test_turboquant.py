@@ -3,16 +3,15 @@
 import mlx.core as mx
 import pytest
 from mlx_lm.models.cache import KVCache
-
 from mlx_vlm.turboquant import (
     TurboQuantKVCache,
+    _build_codec,
     _TurboQuantMSECodec,
     _TurboQuantProdCodec,
-    _build_codec,
     turboquant_enabled,
 )
 
-from omlx.turboquant_kv import BatchTurboQuantKVCache, _rebuild_codecs, _infer_head_dim
+from omlx.turboquant_kv import BatchTurboQuantKVCache, _infer_head_dim, _rebuild_codecs
 
 
 def _sample_unit_vectors(count: int, dim: int) -> mx.array:
@@ -119,9 +118,13 @@ def test_batch_tq_decode_appends():
 
 def test_batch_tq_merge_extract():
     c1 = TurboQuantKVCache(bits=4.0)
-    c1.update_and_fetch(mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32)))
+    c1.update_and_fetch(
+        mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32))
+    )
     c2 = TurboQuantKVCache(bits=4.0)
-    c2.update_and_fetch(mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32)))
+    c2.update_and_fetch(
+        mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32))
+    )
     mx.eval(c1.keys, c1.values, c2.keys, c2.values)
 
     batch = BatchTurboQuantKVCache.merge([c1, c2])
@@ -137,12 +140,20 @@ def test_batch_tq_merge_extract():
 
 def test_batch_tq_continuous_batching_extend():
     b1 = BatchTurboQuantKVCache([0], bits=4.0)
-    b1.update_and_fetch(mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32)))
-    b1.update_and_fetch(mx.random.normal((1, 2, 1, 32)), mx.random.normal((1, 2, 1, 32)))
+    b1.update_and_fetch(
+        mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32))
+    )
+    b1.update_and_fetch(
+        mx.random.normal((1, 2, 1, 32)), mx.random.normal((1, 2, 1, 32))
+    )
 
     b2 = BatchTurboQuantKVCache([0], bits=4.0)
-    b2.update_and_fetch(mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32)))
-    b2.update_and_fetch(mx.random.normal((1, 2, 1, 32)), mx.random.normal((1, 2, 1, 32)))
+    b2.update_and_fetch(
+        mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32))
+    )
+    b2.update_and_fetch(
+        mx.random.normal((1, 2, 1, 32)), mx.random.normal((1, 2, 1, 32))
+    )
 
     b1.extend(b2)
 
@@ -163,10 +174,14 @@ def test_batch_tq_filter():
 
 def test_batch_tq_extend():
     b1 = BatchTurboQuantKVCache([0], bits=4.0)
-    b1.update_and_fetch(mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32)))
+    b1.update_and_fetch(
+        mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32))
+    )
 
     b2 = BatchTurboQuantKVCache([0], bits=4.0)
-    b2.update_and_fetch(mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32)))
+    b2.update_and_fetch(
+        mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32))
+    )
 
     b1.extend(b2)
     assert b1.keys.norms.shape[0] == 2
@@ -174,8 +189,12 @@ def test_batch_tq_extend():
 
 def test_batch_tq_dequantize():
     batch = BatchTurboQuantKVCache([0], bits=4.0)
-    batch.update_and_fetch(mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32)))
-    batch.update_and_fetch(mx.random.normal((1, 2, 1, 32)), mx.random.normal((1, 2, 1, 32)))
+    batch.update_and_fetch(
+        mx.random.normal((1, 2, 8, 32)), mx.random.normal((1, 2, 8, 32))
+    )
+    batch.update_and_fetch(
+        mx.random.normal((1, 2, 1, 32)), mx.random.normal((1, 2, 1, 32))
+    )
     dk, dv = batch.dequantize()
     assert dk.shape[2] == 9
     assert dv.shape[2] == 9
@@ -195,7 +214,9 @@ def test_batch_tq_state_property():
 
 def test_batch_tq_meta_state_round_trip():
     batch = BatchTurboQuantKVCache([0], bits=3.5, seed=42)
-    batch.update_and_fetch(mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32)))
+    batch.update_and_fetch(
+        mx.random.normal((1, 2, 4, 32)), mx.random.normal((1, 2, 4, 32))
+    )
 
     ms = batch.meta_state
     batch2 = BatchTurboQuantKVCache([0], bits=4.0)
@@ -292,9 +313,9 @@ def test_ssd_type_map_completeness():
     """All TQ state types from turboquant_kv must be in SSD type_map."""
     from omlx.turboquant_kv import (
         TurboQuantMSEState,
-        TurboQuantProdState,
-        TurboQuantPolarState,
         TurboQuantPolarProdState,
+        TurboQuantPolarState,
+        TurboQuantProdState,
         TurboQuantSplitState,
     )
 

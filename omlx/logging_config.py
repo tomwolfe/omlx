@@ -15,10 +15,9 @@ import sys
 from contextvars import ContextVar
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 # Context variable for request ID tracking
-_request_id: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
+_request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
 class RequestContextFilter(logging.Filter):
@@ -46,9 +45,7 @@ class AdminStatsAccessFilter(logging.Filter):
             return False
         if "/admin/api/hf/tasks" in msg:
             return False
-        if "/admin/api/oq/tasks" in msg:
-            return False
-        return True
+        return "/admin/api/oq/tasks" not in msg
 
 
 class ColoredFormatter(logging.Formatter):
@@ -59,11 +56,11 @@ class ColoredFormatter(logging.Formatter):
     """
 
     COLORS = {
-        5: "\033[90m",                 # Gray (TRACE)
-        logging.DEBUG: "\033[36m",     # Cyan
-        logging.INFO: "\033[32m",      # Green
-        logging.WARNING: "\033[33m",   # Yellow
-        logging.ERROR: "\033[31m",     # Red
+        5: "\033[90m",  # Gray (TRACE)
+        logging.DEBUG: "\033[36m",  # Cyan
+        logging.INFO: "\033[32m",  # Green
+        logging.WARNING: "\033[33m",  # Yellow
+        logging.ERROR: "\033[31m",  # Red
         logging.CRITICAL: "\033[35m",  # Magenta
     }
     RESET = "\033[0m"
@@ -75,12 +72,12 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
-def get_request_id() -> Optional[str]:
+def get_request_id() -> str | None:
     """Get the current request ID from context."""
     return _request_id.get()
 
 
-def set_request_id(request_id: Optional[str]) -> None:
+def set_request_id(request_id: str | None) -> None:
     """Set the current request ID in context."""
     _request_id.set(request_id)
 
@@ -102,11 +99,15 @@ def configure_logging(
     """
     # Determine log level
     level_name = level.upper()
-    log_level = 5 if level_name == "TRACE" else getattr(logging, level_name, logging.INFO)
+    log_level = (
+        5 if level_name == "TRACE" else getattr(logging, level_name, logging.INFO)
+    )
 
     # Build format string
     if include_request_id:
-        format_str = "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s"
+        format_str = (
+            "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s"
+        )
     else:
         format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
@@ -157,7 +158,6 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record as JSON."""
         import json
-        import time
 
         log_data = {
             "timestamp": self.formatTime(record, self.datefmt),
@@ -185,7 +185,7 @@ class JsonFormatter(logging.Formatter):
 
 def get_logger(
     name: str,
-    request_id: Optional[str] = None,
+    request_id: str | None = None,
 ) -> logging.Logger:
     """
     Get a logger with optional request context.
@@ -214,7 +214,7 @@ class RequestLogContext:
 
     def __init__(self, request_id: str):
         self.request_id = request_id
-        self.previous_id: Optional[str] = None
+        self.previous_id: str | None = None
 
     def __enter__(self) -> "RequestLogContext":
         self.previous_id = _request_id.get()
@@ -249,11 +249,15 @@ def configure_file_logging(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     level_name = level.upper()
-    log_level = 5 if level_name == "TRACE" else getattr(logging, level_name, logging.INFO)
+    log_level = (
+        5 if level_name == "TRACE" else getattr(logging, level_name, logging.INFO)
+    )
 
     # Build format string (no colors for file)
     if include_request_id:
-        format_str = "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s"
+        format_str = (
+            "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s"
+        )
     else:
         format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 

@@ -11,9 +11,9 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
 
 try:
     import mlx.core as mx
@@ -21,6 +21,8 @@ try:
     HAS_MLX = True
 except ImportError:
     HAS_MLX = False
+
+import contextlib
 
 from ..model_discovery import _has_vision_subconfig
 
@@ -33,7 +35,7 @@ class _QuantCancelled(Exception):
     pass
 
 
-class QuantStatus(str, enum.Enum):
+class QuantStatus(enum.StrEnum):
     """Status of a quantization task."""
 
     PENDING = "pending"
@@ -130,7 +132,7 @@ class OQManager:
     def __init__(
         self,
         model_dirs: list[str],
-        on_complete: Optional[Callable] = None,
+        on_complete: Callable | None = None,
     ):
         self._model_dirs = [Path(d) for d in model_dirs]
         self._output_dir = self._model_dirs[0] if self._model_dirs else Path(".")
@@ -151,7 +153,7 @@ class OQManager:
         """Scan all model dirs. Returns (source_models, all_models)."""
 
         def _scan() -> tuple[list[dict], list[dict]]:
-            from ..oq import validate_quantizable, estimate_memory
+            from ..oq import estimate_memory, validate_quantizable
 
             source_models = []
             all_models = []
@@ -179,21 +181,18 @@ class OQManager:
                             with open(path / "config.json") as f:
                                 config = json.load(f)
                             size = sum(
-                                f.stat().st_size
-                                for f in path.glob("*.safetensors")
+                                f.stat().st_size for f in path.glob("*.safetensors")
                             )
                             if size == 0:
-                                size = sum(
-                                    f.stat().st_size
-                                    for f in path.glob("*.bin")
-                                )
+                                size = sum(f.stat().st_size for f in path.glob("*.bin"))
                             if size == 0:
                                 continue
                             tc = config.get("text_config", {})
                             # has_mtp_heads: top-level OR text_config nested
                             has_mtp = (
                                 int(config.get("mtp_num_hidden_layers", 0) or 0) > 0
-                                or int(config.get("num_nextn_predict_layers", 0) or 0) > 0
+                                or int(config.get("num_nextn_predict_layers", 0) or 0)
+                                > 0
                                 or int(tc.get("mtp_num_hidden_layers", 0) or 0) > 0
                                 or int(tc.get("num_nextn_predict_layers", 0) or 0) > 0
                             )
@@ -202,7 +201,8 @@ class OQManager:
                                 "path": str(path),
                                 "size": size,
                                 "size_formatted": _format_size(size),
-                                "model_type": config.get("model_type", "") or tc.get("model_type", ""),
+                                "model_type": config.get("model_type", "")
+                                or tc.get("model_type", ""),
                                 "is_quantized": "quantization" in config,
                                 # Treat vision_config / vit_config / mm_vision_tower as VLM
                                 # evidence (Molmo / Molmo2 use vit_config; FastVLM uses
@@ -219,9 +219,7 @@ class OQManager:
                                 info_full["num_experts"] = config.get(
                                     "num_local_experts", 0
                                 )
-                                info_full["memory_streaming"] = estimate_memory(
-                                    size
-                                )
+                                info_full["memory_streaming"] = estimate_memory(size)
                                 source_models.append(info_full)
                         except Exception:
                             continue
@@ -261,9 +259,7 @@ class OQManager:
                 f"Invalid oQ level {oq_level}. Must be one of {sorted(OQ_LEVELS)}"
             )
         if dtype not in OQ_DTYPES:
-            raise ValueError(
-                f"Invalid dtype {dtype!r}. Must be one of {OQ_DTYPES}"
-            )
+            raise ValueError(f"Invalid dtype {dtype!r}. Must be one of {OQ_DTYPES}")
 
         source = Path(model_path)
         if not source.exists() or not (source / "config.json").exists():
@@ -294,9 +290,7 @@ class OQManager:
                     f"({dtype}) is already in progress"
                 )
 
-        source_size = sum(
-            f.stat().st_size for f in source.glob("*.safetensors")
-        )
+        source_size = sum(f.stat().st_size for f in source.glob("*.safetensors"))
         if source_size == 0:
             source_size = sum(f.stat().st_size for f in source.glob("*.bin"))
 
@@ -363,18 +357,19 @@ class OQManager:
         if active_task and not active_task.done():
             try:
                 await asyncio.wait_for(
-                    asyncio.shield(active_task), timeout=30.0,
+                    asyncio.shield(active_task),
+                    timeout=30.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Thread didn't exit cooperatively (e.g. stuck in long GPTQ
                 # block). Force-cancel as last resort and wait a bit for
                 # Metal to settle.
-                logger.warning("oQ cancel: cooperative exit timed out, force-cancelling")
+                logger.warning(
+                    "oQ cancel: cooperative exit timed out, force-cancelling"
+                )
                 active_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await active_task
-                except (asyncio.CancelledError, Exception):
-                    pass
                 await asyncio.sleep(2.0)
             except (asyncio.CancelledError, Exception):
                 pass
@@ -389,9 +384,7 @@ class OQManager:
                 except Exception:
                     await asyncio.sleep(1.0)
 
-        logger.info(
-            f"oQ quantization cancelled: {task.model_name} (task_id={task_id})"
-        )
+        logger.info(f"oQ quantization cancelled: {task.model_name} (task_id={task_id})")
         return True
 
     def remove_task(self, task_id: str) -> bool:
@@ -412,9 +405,7 @@ class OQManager:
     @property
     def is_quantizing(self) -> bool:
         """Check if any quantization task is actively running."""
-        return any(
-            t.status in _ACTIVE_STATUSES for t in self._tasks.values()
-        )
+        return any(t.status in _ACTIVE_STATUSES for t in self._tasks.values())
 
     async def shutdown(self) -> None:
         """Cancel all active tasks."""
@@ -510,9 +501,7 @@ class OQManager:
                 task.status = QuantStatus.FAILED
                 task.error = str(e)
                 task.completed_at = time.time()
-                logger.exception(
-                    f"oQ quantization failed: {task.model_name} -> {e}"
-                )
+                logger.exception(f"oQ quantization failed: {task.model_name} -> {e}")
                 # Clean up partial output
                 output = Path(task.output_path)
                 if output.exists():
@@ -569,7 +558,11 @@ class OQManager:
             current = parts[1] if len(parts) > 1 else "?"
             total = parts[2] if len(parts) > 2 else "?"
             eta = parts[3] if len(parts) > 3 and parts[3] else ""
-            pct = int(int(current) / max(int(total), 1) * 100) if current.isdigit() and total.isdigit() else 0
+            pct = (
+                int(int(current) / max(int(total), 1) * 100)
+                if current.isdigit() and total.isdigit()
+                else 0
+            )
             label = f"oQ{oq_level:g}: {pct}%"
             if eta:
                 label += f" ({eta} remaining)"

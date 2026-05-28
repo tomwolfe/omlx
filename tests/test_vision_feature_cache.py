@@ -1,18 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for VisionFeatureSSDCache (memory LRU + SSD persistence)."""
 
-import shutil
-import tempfile
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import mlx.core as mx
 import pytest
 
 from omlx.cache.vision_feature_cache import (
     VisionFeatureSSDCache,
-    VisionFeatureSSDEntry,
     _composite_hash,
     _composite_key,
 )
@@ -158,9 +154,7 @@ class TestSSDCache:
 
     def test_ssd_startup_scan(self, tmp_cache_dir):
         # Phase 1: create cache and store features
-        cache1 = VisionFeatureSSDCache(
-            cache_dir=tmp_cache_dir, max_memory_entries=3
-        )
+        cache1 = VisionFeatureSSDCache(cache_dir=tmp_cache_dir, max_memory_entries=3)
         features = mx.ones((4, 8))
         mx.eval(features)
         cache1.put("img_hash", "model_a", features)
@@ -168,9 +162,7 @@ class TestSSDCache:
         cache1.close()
 
         # Phase 2: create new cache instance — should scan existing files
-        cache2 = VisionFeatureSSDCache(
-            cache_dir=tmp_cache_dir, max_memory_entries=3
-        )
+        cache2 = VisionFeatureSSDCache(cache_dir=tmp_cache_dir, max_memory_entries=3)
 
         # Memory cache is empty, but SSD index should have the entry
         result = cache2.get("img_hash", "model_a")
@@ -219,9 +211,7 @@ class TestSSDCache:
         assert result is None
 
     def test_close_flushes_writes(self, tmp_cache_dir):
-        cache = VisionFeatureSSDCache(
-            cache_dir=tmp_cache_dir, max_memory_entries=3
-        )
+        cache = VisionFeatureSSDCache(cache_dir=tmp_cache_dir, max_memory_entries=3)
         features = mx.ones((4, 8))
         mx.eval(features)
         cache.put("img_hash", "model_a", features)
@@ -286,9 +276,7 @@ class TestVLMEngineIntegration:
         expected = mx.ones((10, 16))
         engine._vlm_model.encode_image.return_value = expected
 
-        result = engine._compute_vision_features(
-            mx.zeros((1, 3, 224, 224)), {}
-        )
+        result = engine._compute_vision_features(mx.zeros((1, 3, 224, 224)), {})
         assert result is expected
         engine._vlm_model.encode_image.assert_called_once()
 
@@ -297,9 +285,12 @@ class TestVLMEngineIntegration:
         from omlx.engine.vlm import VLMBatchedEngine
 
         engine = VLMBatchedEngine.__new__(VLMBatchedEngine)
-        engine._vlm_model = MagicMock(spec=[
-            "vision_tower", "config",
-        ])
+        engine._vlm_model = MagicMock(
+            spec=[
+                "vision_tower",
+                "config",
+            ]
+        )
         engine._vlm_model.config.model_type = "qwen3_5_moe"
 
         expected = mx.ones((10, 16))
@@ -334,9 +325,7 @@ class TestVLMEngineIntegration:
         engine._vlm_model = MagicMock(spec=["vision_tower", "config"])
         engine._vlm_model.config.model_type = "qwen2_vl"
 
-        result = engine._compute_vision_features(
-            mx.zeros((1, 3, 224, 224)), {}
-        )
+        result = engine._compute_vision_features(mx.zeros((1, 3, 224, 224)), {})
         assert result is None
 
     def test_compute_vision_features_llava_style(self):
@@ -344,22 +333,30 @@ class TestVLMEngineIntegration:
         from omlx.engine.vlm import VLMBatchedEngine
 
         engine = VLMBatchedEngine.__new__(VLMBatchedEngine)
-        engine._vlm_model = MagicMock(spec=[
-            "vision_tower", "multi_modal_projector",
-            "vision_feature_layer", "vision_feature_select_strategy",
-            "config",
-        ])
+        engine._vlm_model = MagicMock(
+            spec=[
+                "vision_tower",
+                "multi_modal_projector",
+                "vision_feature_layer",
+                "vision_feature_select_strategy",
+                "config",
+            ]
+        )
         engine._vlm_model.config.model_type = "llava"
         engine._vlm_model.vision_feature_layer = -2
         engine._vlm_model.vision_feature_select_strategy = "default"
 
         # vision_tower returns (_, _, hidden_states)
         hidden_state = mx.ones((1, 257, 1024))  # 256 patches + 1 CLS
-        engine._vlm_model.vision_tower.return_value = (None, None, [
-            mx.zeros((1, 257, 1024)),  # layer -3
-            hidden_state,              # layer -2 (selected)
-            mx.zeros((1, 257, 1024)),  # layer -1
-        ])
+        engine._vlm_model.vision_tower.return_value = (
+            None,
+            None,
+            [
+                mx.zeros((1, 257, 1024)),  # layer -3
+                hidden_state,  # layer -2 (selected)
+                mx.zeros((1, 257, 1024)),  # layer -1
+            ],
+        )
         projected = mx.ones((1, 256, 4096))
         engine._vlm_model.multi_modal_projector.return_value = projected
 

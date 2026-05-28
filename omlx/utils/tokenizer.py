@@ -22,14 +22,16 @@ def unwrap_tokenizer(tokenizer):
     """
     try:
         from transformers import PreTrainedTokenizerBase
+
         if isinstance(tokenizer, PreTrainedTokenizerBase):
             return tokenizer
     except ImportError:
         pass
-    if hasattr(tokenizer, '_tokenizer'):
+    if hasattr(tokenizer, "_tokenizer"):
         inner = tokenizer._tokenizer
         try:
             from transformers import PreTrainedTokenizerBase
+
             if isinstance(inner, PreTrainedTokenizerBase):
                 return inner
         except ImportError:
@@ -52,18 +54,18 @@ def resolve_vocab_size(model: Any) -> int | None:
     """
     if model is None:
         return None
-    for attr in ('config', 'args'):
+    for attr in ("config", "args"):
         config = getattr(model, attr, None)
         if config is None:
             continue
-        vs = getattr(config, 'vocab_size', None)
+        vs = getattr(config, "vocab_size", None)
         if isinstance(vs, int):
             return vs
-        text_cfg = getattr(config, 'text_config', None)
+        text_cfg = getattr(config, "text_config", None)
         if isinstance(text_cfg, dict):
-            vs = text_cfg.get('vocab_size')
+            vs = text_cfg.get("vocab_size")
         elif text_cfg is not None:
-            vs = getattr(text_cfg, 'vocab_size', None)
+            vs = getattr(text_cfg, "vocab_size", None)
         if isinstance(vs, int):
             return vs
     return None

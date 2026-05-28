@@ -6,7 +6,6 @@ These tests cover the _inject_json_instruction function from server.py
 which is used for injecting JSON schema instructions into messages.
 """
 
-import pytest
 from omlx.server import _inject_json_instruction
 
 
@@ -27,7 +26,7 @@ class TestInjectJsonInstruction:
         """Test appending to existing system message."""
         messages = [
             {"role": "system", "content": "You are helpful."},
-            {"role": "user", "content": "Hello"}
+            {"role": "user", "content": "Hello"},
         ]
         result = _inject_json_instruction(messages, "Return JSON only")
 
@@ -119,6 +118,7 @@ The JSON should have these fields:
 
     def test_inject_with_pydantic_style_message(self):
         """Test injection with message objects that have attributes."""
+
         class MockMessage:
             def __init__(self, role, content):
                 self.role = role
@@ -134,6 +134,7 @@ The JSON should have these fields:
 
     def test_inject_with_dict_and_pydantic_mixed(self):
         """Test injection handles mixed dict and pydantic-style messages."""
+
         class MockMessage:
             def __init__(self, role, content):
                 self.role = role
@@ -163,6 +164,7 @@ class TestInjectJsonInstructionEdgeCases:
 
     def test_system_message_with_none_content(self):
         """Test handling system message with None content."""
+
         class MockMessage:
             def __init__(self):
                 self.role = "system"

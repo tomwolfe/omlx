@@ -22,11 +22,13 @@ difference via a small adapter (see ``batch_generator._slice_hidden``).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
 
 def _is_our_method(cls: Any, attr: str, marker: str) -> bool:
     """True iff ``cls.<attr>`` carries our marker. Mirror of the helper
@@ -69,6 +71,7 @@ def apply() -> bool:
 # ModelArgs — extend compress_ratios to cover MTP layers.
 # ---------------------------------------------------------------------------
 
+
 def _patch_model_args(dsv4: Any) -> None:
     """Wrap ``ModelArgs.from_dict`` so MTP layers get a default compress_ratio.
 
@@ -106,6 +109,7 @@ def _patch_model_args(dsv4: Any) -> None:
 # ---------------------------------------------------------------------------
 # MTPBlock — register on the module.
 # ---------------------------------------------------------------------------
+
 
 def _register_mtp_block(dsv4: Any) -> None:
     """Define ``MTPBlock`` and attach it to the module."""
@@ -162,6 +166,7 @@ def _register_mtp_block(dsv4: Any) -> None:
 # ---------------------------------------------------------------------------
 # DeepseekV4Model — return_raw_hidden support.
 # ---------------------------------------------------------------------------
+
 
 def _patch_deepseek_v4_model_call(dsv4: Any) -> None:
     """Replace ``DeepseekV4Model.__call__`` to optionally return the raw 4D hidden."""
@@ -235,6 +240,7 @@ def _patch_deepseek_v4_model_call(dsv4: Any) -> None:
 # replace sanitize with the PR 15 body that handles MTP weight remapping.
 # ---------------------------------------------------------------------------
 
+
 def _patch_model(dsv4: Any) -> None:
     cls = dsv4.Model
     init_wrapped = getattr(cls, "_omlx_mtp_init_wrapped", False)
@@ -296,9 +302,8 @@ def _patch_model(dsv4: Any) -> None:
             ratio = getattr(attn, "compress_ratio", 0)
             if ratio == 0:
                 caches.append(RotatingKVCache(max_size=sw))
-            elif (
-                SparseCompressedAttention is not None
-                and isinstance(attn, SparseCompressedAttention)
+            elif SparseCompressedAttention is not None and isinstance(
+                attn, SparseCompressedAttention
             ):
                 caches.append(
                     CacheList(
@@ -342,16 +347,14 @@ def _patch_model(dsv4: Any) -> None:
 
         last_block = None
         for mtp_block, layer_cache in zip(self.mtp, cache):
-            h = mtp_block(
-                h, self.model.embed_tokens, input_ids, mask, layer_cache
-            )
+            h = mtp_block(h, self.model.embed_tokens, input_ids, mask, layer_cache)
             last_block = mtp_block
 
         out = last_block.hc_head(h)
         out = last_block.norm(out)
         return self.lm_head(out)
 
-    def sanitize(self, weights: Dict[str, Any]) -> Dict[str, Any]:
+    def sanitize(self, weights: dict[str, Any]) -> dict[str, Any]:
         """Combined oMLX-base + PR 15 sanitize.
 
         oMLX's stock sanitize strips ``mtp.*`` and remaps the FP4 expert
@@ -366,13 +369,11 @@ def _patch_model(dsv4: Any) -> None:
         # Disable MTP module if weights are absent (e.g. quantized checkpoints
         # that stripped them). Mirrors PR 15's graceful fallback.
         if has_mtp and not has_mtp_weights:
-            try:
+            with contextlib.suppress(AttributeError):
                 del self.mtp
-            except AttributeError:
-                pass
             has_mtp = False
 
-        new_weights: Dict[str, Any] = {}
+        new_weights: dict[str, Any] = {}
         for k, v in weights.items():
             if k.startswith("mtp."):
                 if not has_mtp:
@@ -438,8 +439,12 @@ def _patch_model(dsv4: Any) -> None:
         remapped = {}
         w_remap = {"w1": "gate_proj", "w2": "down_proj", "w3": "up_proj"}
         mtp_block_subs = (
-            "attn.", "ffn.", "attn_norm.", "ffn_norm.",
-            "hc_attn_", "hc_ffn_",
+            "attn.",
+            "ffn.",
+            "attn_norm.",
+            "ffn_norm.",
+            "hc_attn_",
+            "hc_ffn_",
         )
         for k, v in weights.items():
             nk = "model." + k if k.startswith("layers.") else k

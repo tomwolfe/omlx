@@ -11,7 +11,7 @@ These models define the request and response schemas for:
 """
 
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
@@ -22,15 +22,16 @@ from omlx.api.shared_models import (
     get_unix_timestamp,
 )
 
-
 # =============================================================================
 # Content Types
 # =============================================================================
 
+
 class ImageURL(BaseModel):
     """Image URL or base64 data URI for vision model input."""
+
     url: str  # "https://..." or "data:image/jpeg;base64,..."
-    detail: Optional[str] = "auto"  # "low", "high", "auto"
+    detail: str | None = "auto"  # "low", "high", "auto"
 
 
 class ContentPart(BaseModel):
@@ -41,14 +42,16 @@ class ContentPart(BaseModel):
     - text: Plain text content
     - image_url: Image input for vision models
     """
+
     type: str  # "text" or "image_url"
-    text: Optional[str] = None
-    image_url: Optional[ImageURL] = None
+    text: str | None = None
+    image_url: ImageURL | None = None
 
 
 # =============================================================================
 # Messages
 # =============================================================================
+
 
 class Message(BaseModel):
     """
@@ -60,16 +63,17 @@ class Message(BaseModel):
     - Tool call messages (assistant with tool_calls)
     - Tool response messages (role="tool" with tool_call_id)
     """
+
     role: str
-    content: Optional[Union[str, List[ContentPart], List[dict]]] = None
+    content: str | list[ContentPart] | list[dict] | None = None
     # Reasoning/thinking content from <think> blocks (OpenAI reasoning_content field)
-    reasoning_content: Optional[str] = None
+    reasoning_content: str | None = None
     # For assistant messages with tool calls
-    tool_calls: Optional[List[dict]] = None
+    tool_calls: list[dict] | None = None
     # For tool response messages (role="tool")
-    tool_call_id: Optional[str] = None
+    tool_call_id: str | None = None
     # Participant name, rendered into chat template (e.g. Kimi K2/K2.5 named assistants)
-    name: Optional[str] = None
+    name: str | None = None
     # Continue from this message instead of starting a new turn (prefill / partial mode)
     partial: bool = False
 
@@ -99,6 +103,7 @@ class Message(BaseModel):
 # Tool Calling
 # =============================================================================
 
+
 def _coerce_tool_call_arguments(v: Any) -> str:
     """Normalize a tool_call.arguments value to a JSON-object string.
 
@@ -116,7 +121,7 @@ def _coerce_tool_call_arguments(v: Any) -> str:
         raise ValueError(
             f"arguments must be a JSON-encoded string, got {type(v).__name__}. "
             "Per the OpenAI spec tool_call.arguments is a string containing JSON, "
-            "not a dict/list/number. Example: '{\"location\": \"Tokyo\"}'."
+            'not a dict/list/number. Example: \'{"location": "Tokyo"}\'.'
         )
     stripped = v.strip()
     if not stripped:
@@ -129,20 +134,21 @@ def _coerce_tool_call_arguments(v: Any) -> str:
             f"arguments must be valid JSON, got parse error: {e}. "
             "This usually means the client echoed a previous tool call "
             "with a malformed arguments value. Send arguments as a "
-            "JSON-encoded object string like '{\"location\": \"Tokyo\"}'. "
+            'JSON-encoded object string like \'{"location": "Tokyo"}\'. '
             f"Received: {snippet!r}"
         ) from e
     if not isinstance(parsed, dict):
         raise ValueError(
             f"arguments must be a JSON object, got {type(parsed).__name__}. "
             "Tool-call arguments cannot be a list, number, or bare string. "
-            "Example: '{\"location\": \"Tokyo\"}'."
+            'Example: \'{"location": "Tokyo"}\'.'
         )
     return v
 
 
 class FunctionCall(BaseModel):
     """A function call with name and arguments."""
+
     name: str
     arguments: str  # JSON string
 
@@ -154,6 +160,7 @@ class FunctionCall(BaseModel):
 
 class ToolCall(BaseModel):
     """A tool call from the model."""
+
     id: str
     type: str = "function"
     function: FunctionCall
@@ -161,6 +168,7 @@ class ToolCall(BaseModel):
 
 class ToolDefinition(BaseModel):
     """Definition of a tool that can be called by the model."""
+
     type: str = "function"
     function: dict
 
@@ -169,12 +177,14 @@ class ToolDefinition(BaseModel):
 # Structured Output (JSON Schema)
 # =============================================================================
 
+
 class ResponseFormatJsonSchema(BaseModel):
     """JSON Schema definition for structured output."""
+
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     schema_: dict = Field(alias="schema")  # JSON Schema specification
-    strict: Optional[bool] = False
+    strict: bool | None = False
 
     class Config:
         populate_by_name = True
@@ -189,8 +199,9 @@ class ResponseFormat(BaseModel):
     - "json_object": Forces valid JSON output
     - "json_schema": Forces JSON matching a specific schema
     """
+
     type: str = "text"  # "text", "json_object", "json_schema"
-    json_schema: Optional[ResponseFormatJsonSchema] = None
+    json_schema: ResponseFormatJsonSchema | None = None
 
 
 class StructuredOutputOptions(BaseModel):
@@ -205,57 +216,61 @@ class StructuredOutputOptions(BaseModel):
     - choice: List of allowed string values (output will be exactly one)
     - grammar: EBNF/GBNF context-free grammar string
     """
+
     model_config = {"populate_by_name": True}
 
-    json_schema: Optional[Union[str, dict]] = Field(None, alias="json")
-    regex: Optional[str] = None
-    choice: Optional[List[str]] = None
-    grammar: Optional[str] = None
+    json_schema: str | dict | None = Field(None, alias="json")
+    regex: str | None = None
+    choice: list[str] | None = None
+    grammar: str | None = None
 
 
 # =============================================================================
 # Chat Completion
 # =============================================================================
 
+
 class StreamOptions(BaseModel):
     """Options for streaming responses."""
+
     include_usage: bool = False
 
 
 class ChatCompletionRequest(BaseModel):
     """Request for chat completion."""
+
     model: str
-    messages: List[Message]
+    messages: list[Message]
     temperature: float | None = None
     top_p: float | None = None
-    max_tokens: Optional[int] = None
+    max_tokens: int | None = None
     stream: bool = False
-    stream_options: Optional[StreamOptions] = None
-    stop: Optional[List[str]] = None
+    stream_options: StreamOptions | None = None
+    stop: list[str] | None = None
     min_p: float | None = None
     xtc_probability: float | None = None
     xtc_threshold: float | None = None
     presence_penalty: float | None = None
     frequency_penalty: float | None = None
     # Tool calling
-    tools: Optional[List[ToolDefinition]] = None
-    tool_choice: Optional[Union[str, dict]] = None  # "auto", "none", or specific tool
+    tools: list[ToolDefinition] | None = None
+    tool_choice: str | dict | None = None  # "auto", "none", or specific tool
     # Structured output
-    response_format: Optional[Union[ResponseFormat, dict]] = None
+    response_format: ResponseFormat | dict | None = None
     # vLLM-compatible structured output (grammar, regex, choice, json)
-    structured_outputs: Optional[Union[StructuredOutputOptions, dict]] = None
+    structured_outputs: StructuredOutputOptions | dict | None = None
     # Chat template kwargs (e.g. enable_thinking, reasoning_effort)
-    chat_template_kwargs: Optional[Dict[str, Any]] = None
+    chat_template_kwargs: dict[str, Any] | None = None
     # Thinking budget (max thinking tokens, None = unlimited)
-    thinking_budget: Optional[int] = None
+    thinking_budget: int | None = None
     # SpecPrefill: per-request enable/disable (None = use model setting)
-    specprefill: Optional[bool] = None
+    specprefill: bool | None = None
     # SpecPrefill: per-request keep percentage (0.1-0.5, None = use model setting)
-    specprefill_keep_pct: Optional[float] = None
+    specprefill_keep_pct: float | None = None
     # SpecPrefill: per-request threshold override (min tokens to trigger, None = use model setting)
-    specprefill_threshold: Optional[int] = None
+    specprefill_threshold: int | None = None
     # Seed for reproducible generation (best-effort)
-    seed: Optional[int] = None
+    seed: int | None = None
 
     @field_validator("stop", mode="before")
     @classmethod
@@ -268,24 +283,26 @@ class ChatCompletionRequest(BaseModel):
 
 class AssistantMessage(BaseModel):
     """Response message from the assistant."""
+
     role: str = "assistant"
-    content: Optional[str] = None
-    reasoning_content: Optional[str] = None
-    tool_calls: Optional[List[ToolCall]] = None
+    content: str | None = None
+    reasoning_content: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class ChatCompletionChoice(BaseModel):
     """A single choice in chat completion response."""
+
     index: int = 0
     message: AssistantMessage
-    finish_reason: Optional[str] = "stop"
+    finish_reason: str | None = "stop"
 
 
 class PromptTokensDetails(BaseModel):
     """Breakdown of prompt tokens used."""
 
-    cached_tokens: Optional[int] = None
-    audio_tokens: Optional[int] = None
+    cached_tokens: int | None = None
+    audio_tokens: int | None = None
 
 
 class Usage(BaseUsage):
@@ -295,15 +312,15 @@ class Usage(BaseUsage):
     When present, timing values are in seconds.
     """
 
-    prompt_tokens_details: Optional[PromptTokensDetails] = None
+    prompt_tokens_details: PromptTokensDetails | None = None
     # Timing metrics (oMLX extension, seconds)
-    model_load_duration: Optional[float] = None
-    time_to_first_token: Optional[float] = None
-    total_time: Optional[float] = None
-    prompt_eval_duration: Optional[float] = None
-    generation_duration: Optional[float] = None
-    prompt_tokens_per_second: Optional[float] = None
-    generation_tokens_per_second: Optional[float] = None
+    model_load_duration: float | None = None
+    time_to_first_token: float | None = None
+    total_time: float | None = None
+    prompt_eval_duration: float | None = None
+    generation_duration: float | None = None
+    prompt_tokens_per_second: float | None = None
+    generation_tokens_per_second: float | None = None
 
 
 class ChatCompletionResponse(BaseModel):
@@ -313,7 +330,7 @@ class ChatCompletionResponse(BaseModel):
     object: str = "chat.completion"
     created: int = Field(default_factory=get_unix_timestamp)
     model: str
-    choices: List[ChatCompletionChoice]
+    choices: list[ChatCompletionChoice]
     usage: Usage = Field(default_factory=Usage)
 
 
@@ -321,23 +338,25 @@ class ChatCompletionResponse(BaseModel):
 # Text Completion
 # =============================================================================
 
+
 class CompletionRequest(BaseModel):
     """Request for text completion."""
+
     model: str
-    prompt: Union[str, List[str]]
+    prompt: str | list[str]
     temperature: float | None = None
     top_p: float | None = None
-    max_tokens: Optional[int] = None
+    max_tokens: int | None = None
     stream: bool = False
-    stream_options: Optional[StreamOptions] = None
-    stop: Optional[List[str]] = None
+    stream_options: StreamOptions | None = None
+    stop: list[str] | None = None
     min_p: float | None = None
     xtc_probability: float | None = None
     xtc_threshold: float | None = None
     presence_penalty: float | None = None
     frequency_penalty: float | None = None
     # Seed for reproducible generation (best-effort)
-    seed: Optional[int] = None
+    seed: int | None = None
 
     @field_validator("stop", mode="before")
     @classmethod
@@ -350,9 +369,10 @@ class CompletionRequest(BaseModel):
 
 class CompletionChoice(BaseModel):
     """A single choice in text completion response."""
+
     index: int = 0
     text: str
-    finish_reason: Optional[str] = "stop"
+    finish_reason: str | None = "stop"
 
 
 class CompletionResponse(BaseModel):
@@ -362,13 +382,14 @@ class CompletionResponse(BaseModel):
     object: str = "text_completion"
     created: int = Field(default_factory=get_unix_timestamp)
     model: str
-    choices: List[CompletionChoice]
+    choices: list[CompletionChoice]
     usage: Usage = Field(default_factory=Usage)
 
 
 # =============================================================================
 # Models List
 # =============================================================================
+
 
 class ModelInfo(BaseModel):
     """Information about an available model."""
@@ -381,16 +402,19 @@ class ModelInfo(BaseModel):
 
 class ModelsResponse(BaseModel):
     """Response for listing models."""
+
     object: str = "list"
-    data: List[ModelInfo]
+    data: list[ModelInfo]
 
 
 # =============================================================================
 # MCP (Model Context Protocol)
 # =============================================================================
 
+
 class MCPToolInfo(BaseModel):
     """Information about an MCP tool."""
+
     name: str
     description: str
     server: str
@@ -399,26 +423,30 @@ class MCPToolInfo(BaseModel):
 
 class MCPToolsResponse(BaseModel):
     """Response for listing MCP tools."""
-    tools: List[MCPToolInfo]
+
+    tools: list[MCPToolInfo]
     count: int
 
 
 class MCPServerInfo(BaseModel):
     """Information about an MCP server."""
+
     name: str
     state: str
     transport: str
     tools_count: int
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class MCPServersResponse(BaseModel):
     """Response for listing MCP servers."""
-    servers: List[MCPServerInfo]
+
+    servers: list[MCPServerInfo]
 
 
 class MCPExecuteRequest(BaseModel):
     """Request to execute an MCP tool."""
+
     model_config = {"populate_by_name": True}
 
     tool_name: str = Field(validation_alias=AliasChoices("tool_name", "tool"))
@@ -427,29 +455,33 @@ class MCPExecuteRequest(BaseModel):
 
 class MCPExecuteResponse(BaseModel):
     """Response from executing an MCP tool."""
+
     tool_name: str
-    content: Optional[Union[str, list, dict]] = None
+    content: str | list | dict | None = None
     is_error: bool = False
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 # =============================================================================
 # Streaming (for SSE responses)
 # =============================================================================
 
+
 class ChatCompletionChunkDelta(BaseModel):
     """Delta content in a streaming chunk."""
-    role: Optional[str] = None
-    content: Optional[str] = None
-    reasoning_content: Optional[str] = None
-    tool_calls: Optional[List[dict]] = None
+
+    role: str | None = None
+    content: str | None = None
+    reasoning_content: str | None = None
+    tool_calls: list[dict] | None = None
 
 
 class ChatCompletionChunkChoice(BaseModel):
     """A single choice in a streaming chunk."""
+
     index: int = 0
     delta: ChatCompletionChunkDelta
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class ChatCompletionChunk(BaseModel):
@@ -459,5 +491,5 @@ class ChatCompletionChunk(BaseModel):
     object: str = "chat.completion.chunk"
     created: int = Field(default_factory=get_unix_timestamp)
     model: str
-    choices: List[ChatCompletionChunkChoice]
-    usage: Optional[Usage] = None  # Present on last chunk when include_usage=true
+    choices: list[ChatCompletionChunkChoice]
+    usage: Usage | None = None  # Present on last chunk when include_usage=true

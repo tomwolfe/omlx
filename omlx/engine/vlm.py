@@ -31,7 +31,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import mlx.core as mx
 
@@ -46,7 +46,6 @@ from ..utils.image import (
     compute_per_image_hashes,
     extract_images_from_messages,
 )
-from ..utils.tokenizer import get_tokenizer_config
 from .base import BaseEngine, GenerationOutput
 
 logger = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ OCR_MODEL_TYPES = {"deepseekocr", "deepseekocr_2", "dots_ocr", "glm_ocr"}
 # OCR model types and their default markdown conversion prompts.
 # When an OCR model receives a generic user prompt with an image,
 # the prompt is automatically adjusted for markdown output.
-OCR_MODEL_PROMPTS: Dict[str, str] = {
+OCR_MODEL_PROMPTS: dict[str, str] = {
     "deepseekocr": "Convert the document to markdown.",
     "deepseekocr_2": "Convert the document to markdown.",
     "dots_ocr": "Convert this page to clean Markdown while preserving reading order.",
@@ -67,7 +66,7 @@ OCR_MODEL_PROMPTS: Dict[str, str] = {
 # Extra stop sequences for OCR models to prevent degeneration.
 # Many OCR models lack proper EOS handling and generate chat-turn
 # tokens (<|user|>, <|im_start|>, etc.) indefinitely after the OCR output.
-OCR_EXTRA_STOP_SEQUENCES: List[str] = [
+OCR_EXTRA_STOP_SEQUENCES: list[str] = [
     "<|user|>",
     "<|im_start|>",
     "<|im_end|>",
@@ -77,7 +76,7 @@ OCR_EXTRA_STOP_SEQUENCES: List[str] = [
 
 # Per-model OCR generation defaults from official configs.
 # Applied automatically when no explicit user override is provided.
-OCR_MODEL_GENERATION_DEFAULTS: Dict[str, Dict[str, Any]] = {
+OCR_MODEL_GENERATION_DEFAULTS: dict[str, dict[str, Any]] = {
     "glm_ocr": {
         "temperature": 0.0,
         "repetition_penalty": 1.1,
@@ -337,7 +336,7 @@ def _has_audio_weights(model_dir: Path) -> bool:
     for sf in model_dir.glob("*.safetensors"):
         try:
             with safetensors.safe_open(str(sf), framework="np") as f:
-                for k in f.keys():
+                for k in f:
                     if k.startswith(("audio_tower.", "embed_audio.")):
                         return True
         except Exception:
@@ -706,6 +705,7 @@ class VLMBatchedEngine(BaseEngine):
         # Materialize lazy buffers (RoPE freqs, vision/audio towers) on the
         # loader thread so per-engine inference threads can read them (#1304).
         from ..utils.model_loading import materialize_lazy_state
+
         await loop.run_in_executor(
             get_mlx_executor(), materialize_lazy_state, self._vlm_model
         )
@@ -1075,7 +1075,7 @@ class VLMBatchedEngine(BaseEngine):
 
     def _compute_vision_features(
         self, pixel_values: Any, extra_model_inputs: dict
-    ) -> Optional[mx.array]:
+    ) -> mx.array | None:
         """Compute vision features for caching.
 
         Tries multiple strategies based on model architecture:
@@ -1151,7 +1151,7 @@ class VLMBatchedEngine(BaseEngine):
         features: mx.array,
         num_images: int,
         extra_model_inputs: dict,
-    ) -> Optional[List[mx.array]]:
+    ) -> list[mx.array] | None:
         """Split batched vision features into per-image tensors for caching.
 
         Returns a list of per-image feature tensors, or None if the model
@@ -1201,13 +1201,13 @@ class VLMBatchedEngine(BaseEngine):
         images: list[Any],
         chat_template_kwargs: dict[str, Any] | None = None,
         tools: list[dict] | None = None,
-    ) -> Tuple[
-        List[int],
-        Optional[mx.array],
-        Optional[Dict[str, Any]],
-        Optional[str],
+    ) -> tuple[
+        list[int],
+        mx.array | None,
+        dict[str, Any] | None,
+        str | None,
         int,
-        List[Tuple[int, str]],
+        list[tuple[int, str]],
     ]:
         """
         Run the full VLM preprocessing pipeline:
@@ -1345,7 +1345,7 @@ class VLMBatchedEngine(BaseEngine):
         attention_mask = inputs.get("attention_mask")
 
         image_cache_key_start = 0
-        image_cache_key_ranges: list[Tuple[int, str]] = []
+        image_cache_key_ranges: list[tuple[int, str]] = []
         if image_message_ranges:
             try:
                 prefix_template_kwargs = {
@@ -1438,9 +1438,7 @@ class VLMBatchedEngine(BaseEngine):
                     # Fallback: whole-request entry (stored when per-image split
                     # is unsupported, e.g. Gemma 4 multi-image with per-image
                     # resize). Mirrors the store-side branch below.
-                    cached_whole = self._vision_cache.get(
-                        image_hash, self._model_name
-                    )
+                    cached_whole = self._vision_cache.get(image_hash, self._model_name)
 
                 if all(f is not None for f in cached_per_image):
                     # All images cached individually — combine and use
@@ -1617,7 +1615,7 @@ class VLMBatchedEngine(BaseEngine):
         vlm_extra_kwargs: dict[str, Any] | None = None,
         vlm_image_hash: str | None = None,
         vlm_cache_key_start: int = 0,
-        vlm_cache_key_ranges: Optional[List[Tuple[int, str]]] = None,
+        vlm_cache_key_ranges: list[tuple[int, str]] | None = None,
         **kwargs,
     ) -> GenerationOutput:
         """Generate a complete response (non-streaming)."""
@@ -1646,9 +1644,9 @@ class VLMBatchedEngine(BaseEngine):
             presence_penalty=presence_penalty,
             stop=stop or [],
             stop_token_ids=extra_stop_ids or None,
-            thinking_budget=kwargs.get("thinking_budget", None),
-            compiled_grammar=kwargs.get("compiled_grammar", None),
-            seed=kwargs.get("seed", None),
+            thinking_budget=kwargs.get("thinking_budget"),
+            compiled_grammar=kwargs.get("compiled_grammar"),
+            seed=kwargs.get("seed"),
         )
 
         output = await self._engine.generate(
@@ -1687,7 +1685,7 @@ class VLMBatchedEngine(BaseEngine):
         vlm_extra_kwargs: dict[str, Any] | None = None,
         vlm_image_hash: str | None = None,
         vlm_cache_key_start: int = 0,
-        vlm_cache_key_ranges: Optional[List[Tuple[int, str]]] = None,
+        vlm_cache_key_ranges: list[tuple[int, str]] | None = None,
         **kwargs,
     ) -> AsyncIterator[GenerationOutput]:
         """Stream generation token by token."""
@@ -1716,9 +1714,9 @@ class VLMBatchedEngine(BaseEngine):
             presence_penalty=presence_penalty,
             stop=stop or [],
             stop_token_ids=extra_stop_ids or None,
-            thinking_budget=kwargs.get("thinking_budget", None),
-            compiled_grammar=kwargs.get("compiled_grammar", None),
-            seed=kwargs.get("seed", None),
+            thinking_budget=kwargs.get("thinking_budget"),
+            compiled_grammar=kwargs.get("compiled_grammar"),
+            seed=kwargs.get("seed"),
         )
 
         # SpecPrefill: pass per-request overrides
@@ -1967,8 +1965,8 @@ class VLMBatchedEngine(BaseEngine):
         messages: list[dict[str, Any]],
         tools: list[dict] | None,
         kwargs: dict,
-    ) -> Tuple[
-        str | list[int], Any, dict | None, str | None, int, List[Tuple[int, str]]
+    ) -> tuple[
+        str | list[int], Any, dict | None, str | None, int, list[tuple[int, str]]
     ]:
         """
         Process chat messages, extracting images and preparing VLM inputs.

@@ -13,15 +13,15 @@ Features:
 """
 
 from omlx._version import __version__
+from omlx.cache.paged_cache import BlockTable, CacheBlock, PagedCacheManager
+from omlx.cache.prefix_cache import BlockAwarePrefixCache
+from omlx.cache.stats import PagedCacheStats, PrefixCacheStats
+from omlx.engine_core import AsyncEngineCore, EngineConfig, EngineCore
+from omlx.model_registry import ModelOwnershipError, get_registry
 
 # Continuous batching engine (core functionality, no torch required)
 from omlx.request import Request, RequestOutput, RequestStatus, SamplingParams
 from omlx.scheduler import Scheduler, SchedulerConfig, SchedulerOutput
-from omlx.engine_core import EngineCore, AsyncEngineCore, EngineConfig
-from omlx.cache.prefix_cache import BlockAwarePrefixCache
-from omlx.cache.paged_cache import PagedCacheManager, CacheBlock, BlockTable
-from omlx.cache.stats import PrefixCacheStats, PagedCacheStats
-from omlx.model_registry import get_registry, ModelOwnershipError
 
 # Backward compatibility alias
 CacheStats = PagedCacheStats

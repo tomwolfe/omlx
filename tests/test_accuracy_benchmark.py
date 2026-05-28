@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Unit tests for accuracy benchmark orchestration."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,7 +8,6 @@ import pytest
 from omlx.admin.accuracy_benchmark import (
     VALID_BENCHMARKS,
     AccuracyBenchmarkRequest,
-    AccuracyBenchmarkRun,
     _accumulated_results,
     add_to_queue,
     cleanup_old_runs,
@@ -76,102 +74,137 @@ class TestAccuracyBenchmarkRequest:
         assert req.enable_thinking is True
 
 
-class TestQueueAndResults:
-    def setup_method(self):
-        from omlx.admin.accuracy_benchmark import _queue
-        _queue.clear()
-        reset_accumulated_results()
+@pytest.fixture
+async def clean_queue_state():
+    """Fixture that clears all queue-related state before each test."""
+    from omlx.admin.accuracy_benchmark import (
+        _current_model,
+        _current_run_id,
+        _engine_pool_ref,
+        _queue,
+        _queue_running,
+    )
 
-    def test_add_to_queue(self):
+    await _queue.clear()
+    await reset_accumulated_results()
+    await _queue_running.clear()
+    await _current_run_id.clear()
+    _queue_running.init_value("running", False)
+    _current_run_id.init_value("id", None)
+    _current_model = None
+    _engine_pool_ref = None
+    yield
+
+
+class TestQueueAndResults:
+    @pytest.mark.asyncio
+    async def test_add_to_queue(self, clean_queue_state):
         req = AccuracyBenchmarkRequest(
             model_id="model-a",
             benchmarks={"mmlu": 100},
         )
-        add_to_queue(req)
-        status = get_queue_status()
+        await add_to_queue(req)
+        status = await get_queue_status()
         assert len(status["queue"]) == 1
         assert status["queue"][0]["model_id"] == "model-a"
 
-    def test_queue_status_empty(self):
-        status = get_queue_status()
+    @pytest.mark.asyncio
+    async def test_queue_status_empty(self, clean_queue_state):
+        status = await get_queue_status()
         assert status["running"] is False
         assert len(status["queue"]) == 0
 
-    def test_accumulated_results(self):
-        _accumulated_results.append({"model_id": "m1", "benchmark": "mmlu", "accuracy": 0.5})
-        results = get_accumulated_results()
+    @pytest.mark.asyncio
+    async def test_accumulated_results(self, clean_queue_state):
+        await _accumulated_results.create(
+            "m1", {"model_id": "m1", "benchmark": "mmlu", "accuracy": 0.5}
+        )
+        results = await get_accumulated_results()
         assert len(results) == 1
         assert results[0]["model_id"] == "m1"
 
-    def test_reset_accumulated_results(self):
-        _accumulated_results.append({"model_id": "m1", "benchmark": "mmlu", "accuracy": 0.5})
-        reset_accumulated_results()
-        assert len(get_accumulated_results()) == 0
+    @pytest.mark.asyncio
+    async def test_reset_accumulated_results(self, clean_queue_state):
+        await _accumulated_results.append(
+            {"model_id": "m1", "benchmark": "mmlu", "accuracy": 0.5}
+        )
+        await reset_accumulated_results()
+        assert len(await get_accumulated_results()) == 0
+
+
+@pytest.fixture
+async def clean_accuracy_runs():
+    """Fixture that clears accuracy runs before each test."""
+    from omlx.admin.accuracy_benchmark import _accuracy_runs
+
+    await _accuracy_runs.clear()
+    yield
 
 
 class TestRunLifecycle:
-    def setup_method(self):
-        from omlx.admin.accuracy_benchmark import _accuracy_runs
-        _accuracy_runs.clear()
-
-    def test_create_run(self):
+    @pytest.mark.asyncio
+    async def test_create_run(self, clean_accuracy_runs):
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
             benchmarks={"mmlu": 100},
         )
-        run = create_run(req)
+        run = await create_run(req)
         assert run.bench_id is not None
         assert run.status == "running"
         assert run.request == req
 
-    def test_get_run(self):
+    @pytest.mark.asyncio
+    async def test_get_run(self, clean_accuracy_runs):
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
             benchmarks={"mmlu": 100},
         )
-        run = create_run(req)
-        found = get_run(run.bench_id)
+        run = await create_run(req)
+        found = await get_run(run.bench_id)
         assert found is run
 
-    def test_get_run_not_found(self):
-        assert get_run("nonexistent") is None
+    @pytest.mark.asyncio
+    async def test_get_run_not_found(self):
+        assert await get_run("nonexistent") is None
 
-    def test_cleanup_old_runs(self):
+    @pytest.mark.asyncio
+    async def test_cleanup_old_runs(self, clean_accuracy_runs):
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
             benchmarks={"mmlu": 100},
         )
-        run1 = create_run(req)
-        run2 = create_run(req)
+        run1 = await create_run(req)
+        run2 = await create_run(req)
         run1.status = "completed"
         run2.status = "running"
 
-        cleanup_old_runs()
+        await cleanup_old_runs()
 
-        assert get_run(run1.bench_id) is None
-        assert get_run(run2.bench_id) is run2
+        assert await get_run(run1.bench_id) is None
+        assert await get_run(run2.bench_id) is run2
 
-    def test_cleanup_error_runs(self):
+    @pytest.mark.asyncio
+    async def test_cleanup_error_runs(self, clean_accuracy_runs):
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
             benchmarks={"mmlu": 100},
         )
-        run = create_run(req)
+        run = await create_run(req)
         run.status = "error"
 
-        cleanup_old_runs()
-        assert get_run(run.bench_id) is None
+        await cleanup_old_runs()
+        assert await get_run(run.bench_id) is None
 
 
 class TestRunAccuracyBenchmark:
     @pytest.mark.asyncio
-    async def test_sends_done_event(self):
+    async def test_sends_done_event(self, clean_accuracy_runs):
         """Verify that a successful run sends a done event."""
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
             benchmarks={"mmlu": 100},
         )
-        run = create_run(req)
+        run = await create_run(req)
 
         # Mock engine_pool
         mock_engine = AsyncMock()
@@ -209,13 +242,13 @@ class TestRunAccuracyBenchmark:
         assert run.status == "completed"
 
     @pytest.mark.asyncio
-    async def test_cancellation(self):
+    async def test_cancellation(self, clean_accuracy_runs):
         """Verify that cancelling stops the run."""
         req = AccuracyBenchmarkRequest(
             model_id="test-model",
             benchmarks={"mmlu": 100},
         )
-        run = create_run(req)
+        run = await create_run(req)
         run.status = "cancelled"  # Pre-cancel
 
         mock_pool = MagicMock()
@@ -225,14 +258,16 @@ class TestRunAccuracyBenchmark:
 
         mock_evaluator = MagicMock()
         mock_evaluator.load_dataset = AsyncMock(return_value=[])
-        mock_evaluator.run = AsyncMock(return_value=MagicMock(
-            benchmark_name="mmlu",
-            accuracy=0.0,
-            total_questions=0,
-            correct_count=0,
-            time_seconds=0.0,
-            category_scores=None,
-        ))
+        mock_evaluator.run = AsyncMock(
+            return_value=MagicMock(
+                benchmark_name="mmlu",
+                accuracy=0.0,
+                total_questions=0,
+                correct_count=0,
+                time_seconds=0.0,
+                category_scores=None,
+            )
+        )
 
         mock_bench_cls = MagicMock(return_value=mock_evaluator)
 

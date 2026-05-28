@@ -15,12 +15,14 @@ from omlx.utils.image import (
     load_image,
 )
 
-
 # =============================================================================
 # Helper: create small test images
 # =============================================================================
 
-def _make_test_image(width: int = 4, height: int = 4, color: str = "red") -> Image.Image:
+
+def _make_test_image(
+    width: int = 4, height: int = 4, color: str = "red"
+) -> Image.Image:
     """Create a small solid-color test image."""
     return Image.new("RGB", (width, height), color)
 
@@ -35,6 +37,7 @@ def _image_to_base64(img: Image.Image, fmt: str = "PNG") -> str:
 # =============================================================================
 # Tests: load_image
 # =============================================================================
+
 
 class TestLoadImage:
     """Tests for load_image()."""
@@ -106,6 +109,7 @@ class TestLoadImage:
 # Tests: extract_images_from_messages
 # =============================================================================
 
+
 class TestExtractImagesFromMessages:
     """Tests for extract_images_from_messages()."""
 
@@ -172,8 +176,14 @@ class TestExtractImagesFromMessages:
             {
                 "role": "user",
                 "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_1}"}},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_2}"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64_1}"},
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64_2}"},
+                    },
                     {"type": "text", "text": "Compare these"},
                 ],
             },
@@ -191,7 +201,10 @@ class TestExtractImagesFromMessages:
             {
                 "role": "user",
                 "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    },
                     {"type": "text", "text": "Describe this"},
                 ],
             },
@@ -256,6 +269,7 @@ class TestExtractImagesFromMessages:
 # =============================================================================
 # Tests: compute_image_hash
 # =============================================================================
+
 
 class TestComputeImageHash:
     """Tests for compute_image_hash()."""

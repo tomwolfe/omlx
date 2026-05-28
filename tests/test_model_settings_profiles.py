@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for profile/template CRUD on ModelSettingsManager."""
 
-
 import json
 
 import pytest
@@ -50,7 +49,8 @@ class TestProfilesCRUD:
     def test_update_profile_metadata(self, mgr):
         mgr.save_profile("m", "coding", "Coding", None, {"temperature": 0.0})
         mgr.update_profile(
-            "m", "coding",
+            "m",
+            "coding",
             display_name="Coding v2",
             description="new desc",
             settings={"temperature": 0.2},
@@ -105,8 +105,9 @@ class TestProfilesCRUD:
 
 class TestApplyProfile:
     def test_apply_sets_settings_and_active_name(self, mgr):
-        mgr.save_profile("m", "coding", "Coding", None,
-                         {"temperature": 0.0, "top_p": 0.95})
+        mgr.save_profile(
+            "m", "coding", "Coding", None, {"temperature": 0.0, "top_p": 0.95}
+        )
         applied = mgr.apply_profile("m", "coding")
         assert applied is not None
         assert applied.temperature == 0.0
@@ -125,9 +126,9 @@ class TestApplyProfile:
         mgr.save_profile("m", "coding", "Coding", None, {"temperature": 0.0})
         mgr.apply_profile("m", "coding")
         s = mgr.get_settings("m")
-        assert s.temperature == 0.0          # overwritten
-        assert s.top_p == 0.5                # preserved
-        assert s.top_k == 40                 # preserved
+        assert s.temperature == 0.0  # overwritten
+        assert s.top_p == 0.5  # preserved
+        assert s.top_k == 40  # preserved
 
     def test_apply_missing_profile_returns_none(self, mgr):
         assert mgr.apply_profile("m", "nope") is None
@@ -135,13 +136,19 @@ class TestApplyProfile:
 
 class TestProfileFieldFiltering:
     def test_save_filters_excluded_fields(self, mgr):
-        mgr.save_profile("m", "p", "P", None, {
-            "temperature": 0.5,
-            "is_pinned": True,
-            "is_default": True,
-            "display_name": "ignored",
-            "unknown_key": "x",
-        })
+        mgr.save_profile(
+            "m",
+            "p",
+            "P",
+            None,
+            {
+                "temperature": 0.5,
+                "is_pinned": True,
+                "is_default": True,
+                "display_name": "ignored",
+                "unknown_key": "x",
+            },
+        )
         p = mgr.get_profile("m", "p")
         assert p["settings"] == {"temperature": 0.5}
 

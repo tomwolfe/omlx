@@ -8,10 +8,10 @@ Dataset bundled from math_qa on HuggingFace.
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, load_jsonl
+from .utils import format_mc_prompt, normalize_mc_item
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +28,12 @@ class MathQABenchmark(BaseBenchmark):
         """Load MathQA from bundled data."""
         items = load_jsonl(DATA_DIR / "mathqa_test.jsonl")
 
-        normalized = []
+        normalized: list[dict] = []
         for item in items:
-            choices = item.get("choices", [])
-            labels = item.get("labels", [])
-            if not choices or not labels:
-                continue
-            normalized.append({
-                "id": item.get("id", ""),
-                "question": item["question"],
-                "choices": choices,
-                "labels": labels,
-                "answer": item["answer"],
-                "category": item.get("category", "general"),
-            })
+            normalized_item = normalize_mc_item(item)
+            if normalized_item is not None:
+                normalized_item["category"] = item.get("category", "general")
+                normalized.append(normalized_item)
 
         logger.info(f"MathQA: loaded {len(normalized)} questions")
 
@@ -52,28 +44,20 @@ class MathQABenchmark(BaseBenchmark):
 
     def format_prompt(self, item: dict) -> list[dict[str, str]]:
         """Format as multiple choice with lettered options."""
-        question = item["question"]
-        choices = item["choices"]
-        labels = item["labels"]
-
-        parts = [
-            "Solve the following math problem. "
-            "Answer with just the letter.\n",
-            f"Problem: {question}\n",
-        ]
-        for label, choice in zip(labels, choices):
-            parts.append(f"{label}. {choice}")
-
-        parts.append("\nAnswer:")
-
-        return [{"role": "user", "content": "\n".join(parts)}]
+        return format_mc_prompt(
+            instruction="Solve the following math problem. Answer with just the letter.",
+            question=item["question"],
+            choices=item["choices"],
+            labels=item.get("labels"),
+        )
 
     def extract_answer(self, response: str, item: dict) -> str:
-        valid = item.get("labels", ["A", "B", "C", "D", "E"])
-        return self._extract_mc_answer(response, valid)
+        return self._extract_mc_answer(
+            response, item.get("labels", ["A", "B", "C", "D", "E"])
+        )
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]
 
-    def get_category(self, item: dict) -> Optional[str]:
+    def get_category(self, item: dict) -> str | None:
         return item.get("category")

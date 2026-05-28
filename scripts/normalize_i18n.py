@@ -1,34 +1,37 @@
 import json
 from pathlib import Path
 
+
 def normalize():
     project_root = Path(__file__).parent.parent
     i18n_dir = project_root / "omlx" / "admin" / "i18n"
-    
+
     en_path = i18n_dir / "en.json"
     if not en_path.exists():
         print(f"Error: Could not find {en_path}")
         return
 
-    with open(en_path, "r", encoding="utf-8") as f:
+    with open(en_path, encoding="utf-8") as f:
         en_data = json.load(f)
 
     for file_path in i18n_dir.glob("*.json"):
         if file_path.name == "en.json":
             continue
-            
+
         print(f"Normalizing {file_path.name}...")
-        
-        with open(file_path, "r", encoding="utf-8") as f:
+
+        with open(file_path, encoding="utf-8") as f:
             lang_data = json.load(f)
-            
+
         removed = set(lang_data.keys()) - set(en_data.keys())
         if removed:
             print(f"  Warning: removing {len(removed)} extra keys: {removed}")
 
         added = set(en_data.keys()) - set(lang_data.keys())
         if added:
-            print(f"  Warning: {len(added)} missing keys filled with English fallback: {added}")
+            print(
+                f"  Warning: {len(added)} missing keys filled with English fallback: {added}"
+            )
 
         normalized_data = {}
         for key, value in en_data.items():
@@ -40,6 +43,7 @@ def normalize():
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(normalized_data, f, indent=2, ensure_ascii=False)
             f.write("\n")
+
 
 if __name__ == "__main__":
     normalize()

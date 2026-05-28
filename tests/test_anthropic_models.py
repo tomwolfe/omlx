@@ -6,7 +6,6 @@ Tests the request and response models for Anthropic Messages API,
 including content blocks, tools, and streaming events.
 """
 
-import json
 import pytest
 from pydantic import ValidationError
 
@@ -26,10 +25,10 @@ from omlx.api.anthropic_models import (
     ErrorEvent,
     InputJsonDelta,
     MessageDeltaEvent,
-    MessageStartEvent,
-    MessageStopEvent,
     MessagesRequest,
     MessagesResponse,
+    MessageStartEvent,
+    MessageStopEvent,
     PingEvent,
     SystemContent,
     TextDelta,

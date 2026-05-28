@@ -318,7 +318,7 @@ class BlockAwarePrefixCache(CacheManager):
             self._tokens_requested_total += len(tokens)
 
             logger.debug(
-                f"Prefix index hit for {request_id}: " f"{prefix_len} tokens matched"
+                f"Prefix index hit for {request_id}: {prefix_len} tokens matched"
             )
 
             return block_table, remaining
@@ -1613,9 +1613,8 @@ class BlockAwarePrefixCache(CacheManager):
                     )
 
             # Build model cache config if we have type info
-            model_cache_config = None
             if layer_cache_types and len(layer_cache_types) == num_layers:
-                model_cache_config = ModelCacheConfig.from_type_list(
+                ModelCacheConfig.from_type_list(
                     layer_cache_types, model_name=""
                 )
 
@@ -1696,9 +1695,7 @@ class BlockAwarePrefixCache(CacheManager):
                     if (
                         last_block_meta_states
                         and layer_idx < len(last_block_meta_states)
-                        and isinstance(
-                            last_block_meta_states[layer_idx], (list, tuple)
-                        )
+                        and isinstance(last_block_meta_states[layer_idx], (list, tuple))
                         and len(last_block_meta_states[layer_idx]) >= 1
                         and isinstance(
                             last_block_meta_states[layer_idx][0], (list, tuple)
@@ -1798,9 +1795,7 @@ class BlockAwarePrefixCache(CacheManager):
                         adjusted_sub_metas = []
                         for j in range(num_sub_caches):
                             orig_sub_meta = (
-                                meta_state[1][j]
-                                if j < len(meta_state[1])
-                                else ""
+                                meta_state[1][j] if j < len(meta_state[1]) else ""
                             )
                             sub_class = (
                                 sub_class_names_for_layer[j]

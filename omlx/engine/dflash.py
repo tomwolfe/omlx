@@ -208,9 +208,7 @@ class DFlashEngine(BaseEngine):
             )
             return None
         if not self._in_memory_cache_enabled:
-            logger.warning(
-                "DFlash SSD cache requires in-memory cache; disabling L2."
-            )
+            logger.warning("DFlash SSD cache requires in-memory cache; disabling L2.")
             return None
         return self._omlx_ssd_cache_dir / "dflash_l2"
 
@@ -268,6 +266,7 @@ class DFlashEngine(BaseEngine):
             # hooks and crash with TypeError on n_confirmed (issue #1388).
             # Idempotent — only wraps once per process.
             from ..patches.dflash_lifecycle import install_dflash_lifecycle_wrap
+
             install_dflash_lifecycle_wrap()
 
             target_bundle = load_target_bundle(self._model_name)
@@ -277,7 +276,9 @@ class DFlashEngine(BaseEngine):
                     self._draft_quant_weight_bits,
                     self._draft_quant_activation_bits,
                     self._draft_quant_group_size,
-                ) if self._draft_quant_enabled else None,
+                )
+                if self._draft_quant_enabled
+                else None,
             )
             draft_backend = EagerDraftBackend()
             return target_bundle, draft, draft_backend
@@ -319,7 +320,9 @@ class DFlashEngine(BaseEngine):
 
         self._loaded = True
         self._in_fallback_mode = False
-        max_ctx_display = "unlimited" if self._max_dflash_ctx is None else self._max_dflash_ctx
+        max_ctx_display = (
+            "unlimited" if self._max_dflash_ctx is None else self._max_dflash_ctx
+        )
         # Resolved values dflash-mlx actually ended up using (None settings → dflash default).
         runtime_cfg = getattr(self._runtime_context, "runtime", None)
         window_used = getattr(runtime_cfg, "draft_window_size", "?")
@@ -359,6 +362,7 @@ class DFlashEngine(BaseEngine):
         # onto clean linear_attn / self_attn classes (issue #1388).
         try:
             from ..patches.dflash_lifecycle import restore_dflash_class_patches
+
             restore_dflash_class_patches()
         except Exception as exc:
             logger.debug(f"restore_dflash_class_patches (evict): {exc}")
@@ -392,6 +396,7 @@ class DFlashEngine(BaseEngine):
         # Start fallback engine
         if self._fallback_engine_type == "vlm":
             from .vlm import VLMBatchedEngine
+
             self._fallback_engine = VLMBatchedEngine(
                 model_name=self._model_name,
                 scheduler_config=self._scheduler_config,
@@ -399,6 +404,7 @@ class DFlashEngine(BaseEngine):
             )
         else:
             from .batched import BatchedEngine
+
             self._fallback_engine = BatchedEngine(
                 model_name=self._model_name,
                 scheduler_config=self._scheduler_config,
@@ -406,9 +412,7 @@ class DFlashEngine(BaseEngine):
             )
         await self._fallback_engine.start()
         self._in_fallback_mode = True
-        logger.info(
-            f"DFlash fallback engine started: {self._fallback_engine_type}"
-        )
+        logger.info(f"DFlash fallback engine started: {self._fallback_engine_type}")
 
     async def stop(self) -> None:
         from dflash_mlx.cache.manager import shutdown_runtime_cache_manager
@@ -436,6 +440,7 @@ class DFlashEngine(BaseEngine):
         # clean classes instead of leftover dflash hooks (issue #1388).
         try:
             from ..patches.dflash_lifecycle import restore_dflash_class_patches
+
             restore_dflash_class_patches()
         except Exception as exc:
             logger.debug(f"restore_dflash_class_patches: {exc}")
@@ -516,7 +521,8 @@ class DFlashEngine(BaseEngine):
         """
         template_tools = convert_tools_for_template(tools) if tools else None
         prompt = self._apply_chat_template(
-            messages, template_tools,
+            messages,
+            template_tools,
             chat_template_kwargs=chat_template_kwargs,
             is_partial=is_partial,
         )
@@ -534,7 +540,10 @@ class DFlashEngine(BaseEngine):
             content = msg.get("content")
             if isinstance(content, list):
                 for part in content:
-                    if isinstance(part, dict) and part.get("type") in DFlashEngine._MULTIMODAL_TYPES:
+                    if (
+                        isinstance(part, dict)
+                        and part.get("type") in DFlashEngine._MULTIMODAL_TYPES
+                    ):
                         return True
         return False
 
@@ -563,11 +572,11 @@ class DFlashEngine(BaseEngine):
         if not prompt_tokens:
             return False
 
-        think_start_id = self._get_think_token_id('think_start_id')
+        think_start_id = self._get_think_token_id("think_start_id")
         if think_start_id is None and self._tokenizer_obj is not None:
             try:
                 tid = self._tokenizer_obj.convert_tokens_to_ids("<think>")
-                if tid == getattr(self._tokenizer_obj, 'unk_token_id', None):
+                if tid == getattr(self._tokenizer_obj, "unk_token_id", None):
                     return False
                 think_start_id = tid
             except (AttributeError, KeyError, TypeError):
@@ -581,16 +590,16 @@ class DFlashEngine(BaseEngine):
             return False
 
         last_idx = len(last_tokens) - 1 - last_tokens[::-1].index(think_start_id)
-        after_start = last_tokens[last_idx + 1:]
+        after_start = last_tokens[last_idx + 1 :]
 
         if after_start:
-            think_end_id = self._get_think_token_id('think_end_id')
+            think_end_id = self._get_think_token_id("think_end_id")
             if think_end_id is not None and think_end_id in after_start:
                 return False
             if self._tokenizer_obj is not None:
                 try:
                     tid = self._tokenizer_obj.convert_tokens_to_ids("</think>")
-                    unk = getattr(self._tokenizer_obj, 'unk_token_id', None)
+                    unk = getattr(self._tokenizer_obj, "unk_token_id", None)
                     if tid != unk and tid in after_start:
                         return False
                 except (AttributeError, KeyError, TypeError):
@@ -600,7 +609,7 @@ class DFlashEngine(BaseEngine):
 
     def _think_prefix_text(self) -> str:
         """Return the opening think tag string to prepend (e.g. '<think>\\n')."""
-        tag = getattr(self._tokenizer_obj, 'think_start', '<think>')
+        tag = getattr(self._tokenizer_obj, "think_start", "<think>")
         return f"{tag}\n"
 
     def _stream_dflash_events(
@@ -690,6 +699,7 @@ class DFlashEngine(BaseEngine):
             if parser_session is None:
                 try:
                     from mlx_lm.tokenizer_utils import NaiveStreamingDetokenizer
+
                     detokenizer = NaiveStreamingDetokenizer(self._executor_tokenizer)
                 except ImportError:
                     pass
@@ -813,20 +823,32 @@ class DFlashEngine(BaseEngine):
                     )
                     await self._evict_dflash_and_start_fallback()
             return await self._fallback_engine.generate(
-                prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, stop=stop, **kwargs,
+                presence_penalty=presence_penalty,
+                stop=stop,
+                **kwargs,
             )
 
         # Already in fallback mode but short context came in.
         # Stay in fallback mode (reloading dflash models is expensive).
         if self._in_fallback_mode:
             return await self._fallback_engine.generate(
-                prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, stop=stop, **kwargs,
+                presence_penalty=presence_penalty,
+                stop=stop,
+                **kwargs,
             )
 
         from ..engine_core import get_mlx_executor
@@ -887,15 +909,18 @@ class DFlashEngine(BaseEngine):
         self._active_request = True
         future = loop.run_in_executor(get_mlx_executor(), _run)
         try:
-            summary, generated, parser_session, parsed_visible_parts = (
-                await asyncio.shield(asyncio.wrap_future(future))
-            )
+            (
+                summary,
+                generated,
+                parser_session,
+                parsed_visible_parts,
+            ) = await asyncio.shield(asyncio.wrap_future(future))
         except asyncio.CancelledError:
             stop_event.set()
             logger.info("DFlash generate cancelled, waiting for executor to drain")
             try:
                 await asyncio.wait_for(asyncio.wrap_future(future), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("DFlash executor did not exit within 10s after abort")
             except Exception:
                 pass
@@ -924,7 +949,9 @@ class DFlashEngine(BaseEngine):
                 text = self._think_prefix_text() + text
 
         prompt_token_count = (
-            int(summary.prompt_token_count) if summary is not None else len(prompt_tokens)
+            int(summary.prompt_token_count)
+            if summary is not None
+            else len(prompt_tokens)
         )
         completion_token_count = (
             int(summary.generation_tokens) if summary is not None else len(generated)
@@ -965,10 +992,16 @@ class DFlashEngine(BaseEngine):
                     )
                     await self._evict_dflash_and_start_fallback()
             async for output in self._fallback_engine.stream_generate(
-                prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, stop=stop, **kwargs,
+                presence_penalty=presence_penalty,
+                stop=stop,
+                **kwargs,
             ):
                 yield output
             return
@@ -976,10 +1009,16 @@ class DFlashEngine(BaseEngine):
         # Already in fallback mode — stay there
         if self._in_fallback_mode:
             async for output in self._fallback_engine.stream_generate(
-                prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, stop=stop, **kwargs,
+                presence_penalty=presence_penalty,
+                stop=stop,
+                **kwargs,
             ):
                 yield output
             return
@@ -1004,6 +1043,7 @@ class DFlashEngine(BaseEngine):
         think_prefix_pending = needs_think_prefix
 
         from ..engine_core import get_mlx_executor
+
         self._active_request = True
         future = loop.run_in_executor(
             get_mlx_executor(),
@@ -1060,7 +1100,7 @@ class DFlashEngine(BaseEngine):
                 logger.info("DFlash stream cancelled, waiting for executor to drain")
             try:
                 await asyncio.wait_for(asyncio.wrap_future(future), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "DFlash executor did not exit within 10s after abort; "
                     "next request may still be queued"
@@ -1086,13 +1126,21 @@ class DFlashEngine(BaseEngine):
 
         if self._in_fallback_mode:
             return await self._fallback_engine.chat(
-                messages, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, tools=tools, **kwargs,
+                presence_penalty=presence_penalty,
+                tools=tools,
+                **kwargs,
             )
 
-        if self._fallback_engine_type == "vlm" and self._has_multimodal_content(messages):
+        if self._fallback_engine_type == "vlm" and self._has_multimodal_content(
+            messages
+        ):
             async with self._fallback_lock:
                 if not self._in_fallback_mode:
                     logger.info(
@@ -1101,25 +1149,38 @@ class DFlashEngine(BaseEngine):
                     )
                     await self._evict_dflash_and_start_fallback()
             return await self._fallback_engine.chat(
-                messages, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, tools=tools, **kwargs,
+                presence_penalty=presence_penalty,
+                tools=tools,
+                **kwargs,
             )
 
         template_tools = convert_tools_for_template(tools) if tools else None
         ct_kwargs = kwargs.pop("chat_template_kwargs", None)
         is_partial = kwargs.pop("is_partial", None)
         prompt = self._apply_chat_template(
-            messages, template_tools,
-            chat_template_kwargs=ct_kwargs, is_partial=is_partial,
+            messages,
+            template_tools,
+            chat_template_kwargs=ct_kwargs,
+            is_partial=is_partial,
         )
 
         return await self.generate(
-            prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-            top_p=top_p, top_k=top_k, min_p=min_p,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
             repetition_penalty=repetition_penalty,
-            presence_penalty=presence_penalty, **kwargs,
+            presence_penalty=presence_penalty,
+            **kwargs,
         )
 
     async def stream_chat(
@@ -1140,15 +1201,23 @@ class DFlashEngine(BaseEngine):
 
         if self._in_fallback_mode:
             async for output in self._fallback_engine.stream_chat(
-                messages, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, tools=tools, **kwargs,
+                presence_penalty=presence_penalty,
+                tools=tools,
+                **kwargs,
             ):
                 yield output
             return
 
-        if self._fallback_engine_type == "vlm" and self._has_multimodal_content(messages):
+        if self._fallback_engine_type == "vlm" and self._has_multimodal_content(
+            messages
+        ):
             async with self._fallback_lock:
                 if not self._in_fallback_mode:
                     logger.info(
@@ -1157,10 +1226,16 @@ class DFlashEngine(BaseEngine):
                     )
                     await self._evict_dflash_and_start_fallback()
             async for output in self._fallback_engine.stream_chat(
-                messages, max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, min_p=min_p,
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty, tools=tools, **kwargs,
+                presence_penalty=presence_penalty,
+                tools=tools,
+                **kwargs,
             ):
                 yield output
             return
@@ -1169,20 +1244,30 @@ class DFlashEngine(BaseEngine):
         ct_kwargs = kwargs.pop("chat_template_kwargs", None)
         is_partial = kwargs.pop("is_partial", None)
         prompt = self._apply_chat_template(
-            messages, template_tools,
-            chat_template_kwargs=ct_kwargs, is_partial=is_partial,
+            messages,
+            template_tools,
+            chat_template_kwargs=ct_kwargs,
+            is_partial=is_partial,
         )
 
         async for output in self.stream_generate(
-            prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-            top_p=top_p, top_k=top_k, min_p=min_p,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
             repetition_penalty=repetition_penalty,
-            presence_penalty=presence_penalty, **kwargs,
+            presence_penalty=presence_penalty,
+            **kwargs,
         ):
             yield output
 
     def has_active_requests(self) -> bool:
-        if self._fallback_engine is not None and self._fallback_engine.has_active_requests():
+        if (
+            self._fallback_engine is not None
+            and self._fallback_engine.has_active_requests()
+        ):
             return True
         return self._active_request
 

@@ -400,7 +400,10 @@ class TestHarmonyPreprocess:
         """Test that <think> tags are stripped from assistant messages."""
         messages = [
             {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "<think>\nLet me think...\n</think>\nHi there!"},
+            {
+                "role": "assistant",
+                "content": "<think>\nLet me think...\n</think>\nHi there!",
+            },
             {"role": "user", "content": "How are you?"},
         ]
 
@@ -442,7 +445,10 @@ class TestHarmonyPreprocess:
     def test_strips_multiple_think_blocks(self):
         """Test stripping multiple <think> blocks."""
         messages = [
-            {"role": "assistant", "content": "<think>first</think>Hello<think>second</think>World"},
+            {
+                "role": "assistant",
+                "content": "<think>first</think>Hello<think>second</think>World",
+            },
         ]
 
         result = preprocess_harmony_messages(messages)
@@ -458,7 +464,10 @@ class TestHarmonyPreprocess:
                 "tool_calls": [
                     {
                         "id": "call_123",
-                        "function": {"name": "get_weather", "arguments": '{"location": "Seoul"}'},
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"location": "Seoul"}',
+                        },
                     }
                 ],
             },
@@ -560,7 +569,10 @@ class TestExtractHarmonyMessages:
                 tool_calls=[
                     {
                         "id": "call_123",
-                        "function": {"name": "get_weather", "arguments": '{"location": "Seoul"}'},
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"location": "Seoul"}',
+                        },
                     }
                 ],
             ),
@@ -592,7 +604,10 @@ class TestExtractHarmonyMessages:
                 tool_calls=[
                     {
                         "id": "call_456",
-                        "function": {"name": "get_weather", "arguments": '{"location": "Tokyo"}'},
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"location": "Tokyo"}',
+                        },
                     }
                 ],
             ),
@@ -608,7 +623,9 @@ class TestExtractHarmonyMessages:
         assert result[0]["tool_calls"][0]["id"] == "call_456"
         assert result[0]["tool_calls"][0]["function"]["name"] == "get_weather"
         # Arguments are parsed to dict to avoid double-encoding by chat_template |tojson
-        assert result[0]["tool_calls"][0]["function"]["arguments"] == {"location": "Tokyo"}
+        assert result[0]["tool_calls"][0]["function"]["arguments"] == {
+            "location": "Tokyo"
+        }
 
     def test_handles_content_array(self):
         """Test that content arrays are properly extracted."""
@@ -620,11 +637,17 @@ class TestExtractHarmonyMessages:
                 self.content = content
 
         messages = [
-            MockMessage("user", [
-                {"type": "text", "text": "Hello"},
-                {"type": "image_url", "image_url": {"url": "http://example.com/img.png"}},
-                {"type": "text", "text": "World"},
-            ]),
+            MockMessage(
+                "user",
+                [
+                    {"type": "text", "text": "Hello"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "http://example.com/img.png"},
+                    },
+                    {"type": "text", "text": "World"},
+                ],
+            ),
         ]
 
         result = extract_harmony_messages(messages)
@@ -644,9 +667,16 @@ class TestExtractHarmonyMessages:
                 self.tool_calls = tool_calls
 
         messages = [
-            MockMessage("assistant", None, tool_calls=[
-                {"id": "call_789", "function": {"name": "search", "arguments": '{}'}}
-            ]),
+            MockMessage(
+                "assistant",
+                None,
+                tool_calls=[
+                    {
+                        "id": "call_789",
+                        "function": {"name": "search", "arguments": "{}"},
+                    }
+                ],
+            ),
         ]
 
         result = extract_harmony_messages(messages)
@@ -692,7 +722,9 @@ class TestExtractHarmonyMessages:
                 self.tool_call_id = tool_call_id
 
         messages = [
-            MockMessage("tool", '{"temp": 20, "condition": "sunny"}', tool_call_id="call_123"),
+            MockMessage(
+                "tool", '{"temp": 20, "condition": "sunny"}', tool_call_id="call_123"
+            ),
         ]
 
         result = extract_harmony_messages(messages)
@@ -714,7 +746,9 @@ class TestExtractHarmonyMessages:
                 self.tool_call_id = tool_call_id
 
         messages = [
-            MockMessage("tool", "The weather is sunny and 20 degrees.", tool_call_id="call_123"),
+            MockMessage(
+                "tool", "The weather is sunny and 20 degrees.", tool_call_id="call_123"
+            ),
         ]
 
         result = extract_harmony_messages(messages)
@@ -741,7 +775,10 @@ class TestExtractHarmonyMessages:
                 tool_calls=[
                     {
                         "id": "call_456",
-                        "function": {"name": "get_weather", "arguments": '{"location": "Seoul", "unit": "celsius"}'},
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"location": "Seoul", "unit": "celsius"}',
+                        },
                     }
                 ],
             ),

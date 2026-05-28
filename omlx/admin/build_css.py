@@ -16,6 +16,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from omlx.exceptions import ValidationError
+
 TAILWIND_VERSION = "v3.4.17"
 ADMIN_DIR = Path(__file__).parent
 
@@ -64,9 +66,12 @@ def main() -> None:
 
     cmd = [
         str(binary),
-        "-i", str(input_css),
-        "-o", str(output_css),
-        "-c", str(config),
+        "-i",
+        str(input_css),
+        "-o",
+        str(output_css),
+        "-c",
+        str(config),
         "--minify",
     ]
 
@@ -80,7 +85,12 @@ def main() -> None:
     if result.returncode == 0 and "--watch" not in sys.argv:
         size = output_css.stat().st_size
         print(f"Output: {output_css} ({size:,} bytes)")
-    sys.exit(result.returncode)
+    if result.returncode != 0:
+        raise ValidationError(
+            f"Tailwind CSS build failed (exit code {result.returncode}).",
+            field="build_css",
+            details={"returncode": result.returncode},
+        )
 
 
 if __name__ == "__main__":

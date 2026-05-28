@@ -7,10 +7,10 @@ to eliminate "magic strings" across the codebase.
 
 from __future__ import annotations
 
-from enum import Enum, auto
+from enum import StrEnum
 
 
-class BenchmarkKey(str, Enum):
+class BenchmarkKey(StrEnum):
     """Canonical benchmark identifiers used throughout the evaluation suite.
 
     These keys are used consistently across the eval framework,

@@ -24,6 +24,7 @@ beginning of ``DFlashEngine.start()`` just before ``load_target_bundle``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -122,10 +123,8 @@ def restore_dflash_class_patches() -> None:
             continue
         flag = info["flag"]
         if flag in cls.__dict__:
-            try:
+            with contextlib.suppress(AttributeError):
                 delattr(cls, flag)
-            except AttributeError:
-                pass
         restored += 1
 
     _DFLASH_BACKUP.clear()

@@ -8,21 +8,15 @@ Dataset bundled from truthfulqa/truthful_qa on HuggingFace.
 
 import logging
 import random
-import re
 from pathlib import Path
-from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, load_jsonl
+from .utils import extract_mc_answer, index_to_letter
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
-
-
-def _index_to_letter(idx: int) -> str:
-    """Convert 0-based index to letter (A, B, C, ...)."""
-    return chr(ord("A") + idx)
 
 
 class TruthfulQABenchmark(BaseBenchmark):
@@ -63,12 +57,14 @@ class TruthfulQABenchmark(BaseBenchmark):
             shuffled = [choices[j] for j in indices]
             new_correct_pos = indices.index(correct_idx)
 
-            items.append({
-                "id": str(i),
-                "question": question,
-                "choices": shuffled,
-                "answer": new_correct_pos,
-            })
+            items.append(
+                {
+                    "id": str(i),
+                    "question": question,
+                    "choices": shuffled,
+                    "answer": new_correct_pos,
+                }
+            )
 
         logger.info(f"TruthfulQA: loaded {len(items)} questions")
 
@@ -89,7 +85,7 @@ class TruthfulQABenchmark(BaseBenchmark):
             f"Question: {question}\n",
         ]
         for i, choice in enumerate(choices):
-            parts.append(f"{_index_to_letter(i)}. {choice}")
+            parts.append(f"{index_to_letter(i)}. {choice}")
 
         parts.append("\nAnswer:")
 
@@ -97,12 +93,12 @@ class TruthfulQABenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         num_choices = len(item["choices"])
-        valid_letters = [_index_to_letter(i) for i in range(num_choices)]
-        return self._extract_mc_answer(response, valid_letters)
+        valid_letters = [index_to_letter(i) for i in range(num_choices)]
+        return extract_mc_answer(response, valid_letters)
 
     def check_answer(self, predicted: str, item: dict) -> bool:
-        expected = _index_to_letter(item["answer"])
+        expected = index_to_letter(item["answer"])
         return predicted == expected
 
-    def get_category(self, item: dict) -> Optional[str]:
+    def get_category(self, item: dict) -> str | None:
         return None

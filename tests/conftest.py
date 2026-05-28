@@ -6,7 +6,7 @@ This module provides common fixtures used across test files.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,14 +23,14 @@ class MockTokenizer:
         self.pad_token_id = 0
         self.bos_token_id = 1
 
-    def encode(self, text: str, add_special_tokens: bool = True) -> List[int]:
+    def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         """Encode text to token ids (simple simulation)."""
         # Simple simulation: each word becomes a token
         tokens = []
         if add_special_tokens:
             tokens.append(self.bos_token_id)
         # Simulate tokenization by splitting on spaces
-        for i, word in enumerate(text.split()):
+        for _i, word in enumerate(text.split()):
             # Use hash to get a consistent token id for each word
             token_id = (hash(word) % (self.vocab_size - 10)) + 10
             tokens.append(token_id)
@@ -38,7 +38,7 @@ class MockTokenizer:
 
     def decode(
         self,
-        token_ids: List[int],
+        token_ids: list[int],
         skip_special_tokens: bool = True,
     ) -> str:
         """Decode token ids to text (simple simulation)."""
@@ -54,9 +54,9 @@ class MockTokenizer:
     def __call__(
         self,
         text: str,
-        return_tensors: Optional[str] = None,
+        return_tensors: str | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Tokenize text and return dict with input_ids."""
         input_ids = self.encode(text)
         return {"input_ids": input_ids}
@@ -83,17 +83,21 @@ class MockModelConfig:
 class MockModel:
     """Mock model for testing without loading real models."""
 
-    def __init__(self, config: Optional[MockModelConfig] = None):
+    def __init__(self, config: MockModelConfig | None = None):
         self.config = config or MockModelConfig()
-        self._parameters: Dict[str, Any] = {}
+        self._parameters: dict[str, Any] = {}
 
     def __call__(self, input_ids: Any, **kwargs: Any) -> Any:
         """Forward pass (returns mock logits)."""
         mock_output = MagicMock()
-        mock_output.shape = (1, len(input_ids) if hasattr(input_ids, "__len__") else 1, self.config.vocab_size)
+        mock_output.shape = (
+            1,
+            len(input_ids) if hasattr(input_ids, "__len__") else 1,
+            self.config.vocab_size,
+        )
         return mock_output
 
-    def parameters(self) -> Dict[str, Any]:
+    def parameters(self) -> dict[str, Any]:
         """Return model parameters."""
         return self._parameters
 

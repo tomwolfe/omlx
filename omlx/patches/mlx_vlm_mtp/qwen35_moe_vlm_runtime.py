@@ -77,6 +77,7 @@ def apply() -> bool:
 # TextConfig — retain mtp_num_hidden_layers as instance attribute.
 # ---------------------------------------------------------------------------
 
+
 def _patch_text_config(q35moe_config: Any) -> None:
     """Wrap ``TextConfig.from_dict`` so ``mtp_num_hidden_layers`` survives.
 
@@ -109,6 +110,7 @@ def _patch_text_config(q35moe_config: Any) -> None:
 # MTPDecoderLayer + MTPModule — VLM-classes-based.
 # ---------------------------------------------------------------------------
 
+
 def _register_mtp_classes_for_vlm(q35moe_lang: Any) -> None:
     """Attach ``MTPDecoderLayer`` / ``MTPModule`` classes to the mlx-vlm
     qwen3_5_moe.language module so the language model can instantiate them
@@ -118,7 +120,11 @@ def _register_mtp_classes_for_vlm(q35moe_lang: Any) -> None:
 
     from mlx_vlm.models.qwen3_5.language import (
         Qwen3_5Attention as MoeAttention,
+    )
+    from mlx_vlm.models.qwen3_5.language import (
         Qwen3_5MLP as MoeMLP,
+    )
+    from mlx_vlm.models.qwen3_5.language import (
         create_attention_mask,
     )
 
@@ -192,6 +198,7 @@ def _register_mtp_classes_for_vlm(q35moe_lang: Any) -> None:
 # ---------------------------------------------------------------------------
 # LanguageModel — wrap __init__, support return_hidden, add mtp_forward/cache.
 # ---------------------------------------------------------------------------
+
 
 def _patch_vlm_language_model(q35moe_lang: Any) -> None:
     cls = q35moe_lang.LanguageModel
@@ -286,6 +293,7 @@ def _patch_vlm_language_model(q35moe_lang: Any) -> None:
 # VLMModelAdapter — add MTP pass-through methods at runtime.
 # ---------------------------------------------------------------------------
 
+
 def _patch_vlm_model_adapter() -> None:
     """Extend ``omlx.models.vlm.VLMModelAdapter`` with MTP plumbing.
 
@@ -341,6 +349,7 @@ def _patch_vlm_model_adapter() -> None:
 # metadata) MoE MTP weights.
 # ---------------------------------------------------------------------------
 
+
 def _patch_vlm_outer_model_sanitize(q35moe_outer: Any) -> None:
     cls = q35moe_outer.Model
     if "_omlx_mtp_runtime_sanitize_patched" in cls.__dict__:
@@ -378,21 +387,21 @@ def _patch_vlm_outer_model_sanitize(q35moe_outer: Any) -> None:
 
         # Backbone MoE: convert fused gate_up_proj → switch_mlp.{gate,up,down}.
         for l in range(self.config.text_config.num_hidden_layers):
-            _unfuse_layer_experts(
-                weights, f"model.language_model.layers.{l}.mlp"
-            )
+            _unfuse_layer_experts(weights, f"model.language_model.layers.{l}.mlp")
 
         # MTP MoE layers: discover via weight keys.
         # Two possible prefixes:
         #   ``mtp.layers.N.mlp...``  (raw HF format)
         #   ``language_model.mtp.layers.N.mlp...``  (already-MLX oQ output)
         def _discover_mtp_layers(prefix_root: str):
-            return sorted({
-                int(k[len(prefix_root):].split(".")[0])
-                for k in weights
-                if k.startswith(prefix_root)
-                and k[len(prefix_root):].split(".")[0].isdigit()
-            })
+            return sorted(
+                {
+                    int(k[len(prefix_root) :].split(".")[0])
+                    for k in weights
+                    if k.startswith(prefix_root)
+                    and k[len(prefix_root) :].split(".")[0].isdigit()
+                }
+            )
 
         num_experts = int(getattr(self.config.text_config, "num_experts", 0) or 0)
         for prefix_root in ("mtp.layers.", "language_model.mtp.layers."):
@@ -431,7 +440,7 @@ def _patch_vlm_outer_model_sanitize(q35moe_outer: Any) -> None:
                 key = "language_model." + key
 
             if key.startswith("language_model.model.visual."):
-                key = "vision_tower." + key[len("language_model.model.visual."):]
+                key = "vision_tower." + key[len("language_model.model.visual.") :]
 
             if "conv1d.weight" in key and value.shape[-1] != 1:
                 # Use the module-level mx.moveaxis so it goes through the
@@ -439,9 +448,7 @@ def _patch_vlm_outer_model_sanitize(q35moe_outer: Any) -> None:
                 # called with a ``_TrackedTensor`` placeholder. The instance
                 # method on _TrackedTensor doesn't exist.
                 value = mx.moveaxis(value, 2, 1)
-            if has_unsanitized_conv1d and any(
-                key.endswith(sfx) for sfx in norm_keys
-            ):
+            if has_unsanitized_conv1d and any(key.endswith(sfx) for sfx in norm_keys):
                 if value.ndim == 1:
                     value = value + 1.0
 

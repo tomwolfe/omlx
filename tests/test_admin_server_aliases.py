@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-import omlx.server  # noqa: F401 — ensure server module is imported first (triggers set_admin_getters)
 import omlx.admin.routes as admin_routes
+import omlx.server  # noqa: F401 — ensure server module is imported first (triggers set_admin_getters)
 from omlx.admin.routes import GlobalSettingsRequest
 from omlx.utils.network import (
     detect_server_aliases,
@@ -19,13 +19,14 @@ from omlx.utils.network import (
     is_valid_ip,
 )
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
 
 
-def _make_global_settings(server_aliases: list[str] | None = None, host: str = "127.0.0.1"):
+def _make_global_settings(
+    server_aliases: list[str] | None = None, host: str = "127.0.0.1"
+):
     """Build a MagicMock GlobalSettings with the fields the alias paths touch."""
     gs = MagicMock()
     gs.server.host = host

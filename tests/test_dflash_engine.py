@@ -137,14 +137,27 @@ class TestDFlashModelSettings:
         restored = ModelSettings.from_dict(d)
         assert restored.dflash_enabled == original.dflash_enabled
         assert restored.dflash_draft_model == original.dflash_draft_model
-        assert restored.dflash_draft_quant_enabled == original.dflash_draft_quant_enabled
-        assert restored.dflash_draft_quant_weight_bits == original.dflash_draft_quant_weight_bits
-        assert restored.dflash_draft_quant_activation_bits == original.dflash_draft_quant_activation_bits
-        assert restored.dflash_draft_quant_group_size == original.dflash_draft_quant_group_size
+        assert (
+            restored.dflash_draft_quant_enabled == original.dflash_draft_quant_enabled
+        )
+        assert (
+            restored.dflash_draft_quant_weight_bits
+            == original.dflash_draft_quant_weight_bits
+        )
+        assert (
+            restored.dflash_draft_quant_activation_bits
+            == original.dflash_draft_quant_activation_bits
+        )
+        assert (
+            restored.dflash_draft_quant_group_size
+            == original.dflash_draft_quant_group_size
+        )
         assert restored.dflash_max_ctx == original.dflash_max_ctx
         assert restored.dflash_in_memory_cache == original.dflash_in_memory_cache
         assert restored.dflash_ssd_cache == original.dflash_ssd_cache
-        assert restored.dflash_ssd_cache_max_bytes == original.dflash_ssd_cache_max_bytes
+        assert (
+            restored.dflash_ssd_cache_max_bytes == original.dflash_ssd_cache_max_bytes
+        )
 
 
 class TestDFlashEngineInit:
@@ -206,7 +219,6 @@ class TestDFlashEngineInit:
         assert engine._draft_quant_weight_bits == 8
         assert engine._draft_quant_activation_bits == 32
         assert engine._draft_quant_group_size == 128
-
 
     def test_get_stats_no_verify_mode(self):
         """Stats should not include verify_mode (removed in v2)."""
@@ -391,7 +403,7 @@ class TestDFlashEngineInit:
             ),
         )
         ctx = engine._build_runtime_context()
-        runtime = getattr(ctx, "runtime")
+        runtime = ctx.runtime
         assert runtime.draft_window_size == 512
         assert runtime.draft_sink_size == 16
         assert runtime.verify_mode == "dflash"
@@ -408,7 +420,7 @@ class TestDFlashEngineInit:
             draft_model_path="test-draft",
         )
         ctx = engine._build_runtime_context()
-        runtime = getattr(ctx, "runtime")
+        runtime = ctx.runtime
         assert runtime.draft_window_size == 1024
         assert runtime.draft_sink_size == 64
         assert runtime.verify_mode == "adaptive"
@@ -432,7 +444,7 @@ class TestDFlashEngineInit:
             omlx_ssd_cache_dir=tmp_path,
         )
         ctx = engine._build_runtime_context()
-        runtime = getattr(ctx, "runtime")
+        runtime = ctx.runtime
         assert runtime.prefix_cache_l2_max_bytes == 5 * 1024**3
 
     def test_l2_max_bytes_defaults_to_20gib(self, tmp_path):
@@ -452,7 +464,7 @@ class TestDFlashEngineInit:
             omlx_ssd_cache_dir=tmp_path,
         )
         ctx = engine._build_runtime_context()
-        runtime = getattr(ctx, "runtime")
+        runtime = ctx.runtime
         assert runtime.prefix_cache_l2_max_bytes == 20 * 1024**3
 
 
@@ -539,10 +551,14 @@ class TestDFlashCompatibility:
             from omlx.engine.dflash import is_dflash_compatible
         except ImportError:
             pytest.skip("dflash-mlx not installed")
-        (tmp_path / "config.json").write_text(json.dumps({
-            "model_type": "gemma4_assistant",
-            "text_config": {"model_type": "gemma4_text"},
-        }))
+        (tmp_path / "config.json").write_text(
+            json.dumps(
+                {
+                    "model_type": "gemma4_assistant",
+                    "text_config": {"model_type": "gemma4_text"},
+                }
+            )
+        )
         compatible, reason = is_dflash_compatible(tmp_path)
         assert compatible is False
         assert "gemma4_assistant" in reason
@@ -606,8 +622,9 @@ class TestDFlashThinkPrefix:
         engine._tokenizer_obj = tokenizer
         return engine
 
-    def _tokenizer(self, *, think_start_id=None, think_end_id=None,
-                   think_start_str="<think>"):
+    def _tokenizer(
+        self, *, think_start_id=None, think_end_id=None, think_start_str="<think>"
+    ):
         class _Tok:
             pass
 
@@ -624,9 +641,12 @@ class TestDFlashThinkPrefix:
         except ImportError:
             pytest.skip("dflash-mlx not installed")
 
-        engine = self._make_engine(self._tokenizer(
-            think_start_id=151667, think_end_id=151668,
-        ))
+        engine = self._make_engine(
+            self._tokenizer(
+                think_start_id=151667,
+                think_end_id=151668,
+            )
+        )
         # prompt ending: ..., <|im_start|>assistant\n, <think>\n
         assert engine._detect_needs_think_prefix([100, 200, 151667]) is True
 
@@ -636,13 +656,14 @@ class TestDFlashThinkPrefix:
         except ImportError:
             pytest.skip("dflash-mlx not installed")
 
-        engine = self._make_engine(self._tokenizer(
-            think_start_id=151667, think_end_id=151668,
-        ))
+        engine = self._make_engine(
+            self._tokenizer(
+                think_start_id=151667,
+                think_end_id=151668,
+            )
+        )
         # disabled-thinking pattern: <think></think>
-        assert engine._detect_needs_think_prefix(
-            [100, 151667, 151668]
-        ) is False
+        assert engine._detect_needs_think_prefix([100, 151667, 151668]) is False
 
     def test_detect_returns_false_when_think_start_id_unavailable(self):
         try:
@@ -673,9 +694,7 @@ class TestDFlashThinkPrefix:
         engine = self._make_engine(self._tokenizer(think_start_id=151667))
         # <think> appears earlier but not in last 3 — already inside an
         # assistant turn, so a fresh prefix is not needed
-        assert engine._detect_needs_think_prefix(
-            [151667, 1, 2, 3, 4, 5]
-        ) is False
+        assert engine._detect_needs_think_prefix([151667, 1, 2, 3, 4, 5]) is False
 
     def test_think_prefix_text_uses_tokenizer_attr(self):
         try:
@@ -683,9 +702,11 @@ class TestDFlashThinkPrefix:
         except ImportError:
             pytest.skip("dflash-mlx not installed")
 
-        engine = self._make_engine(self._tokenizer(
-            think_start_str="<longcat_think>",
-        ))
+        engine = self._make_engine(
+            self._tokenizer(
+                think_start_str="<longcat_think>",
+            )
+        )
         assert engine._think_prefix_text() == "<longcat_think>\n"
 
     def test_think_prefix_text_default(self):
@@ -697,6 +718,7 @@ class TestDFlashThinkPrefix:
         # Tokenizer with no think_start attr falls back to <think>
         class _Tok:
             pass
+
         engine = self._make_engine(_Tok())
         assert engine._think_prefix_text() == "<think>\n"
 

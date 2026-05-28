@@ -7,8 +7,8 @@ integrating with vLLM's model execution system.
 """
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator
 
 from ..api.utils import detect_and_strip_partial
 from ..utils.tokenizer import get_tokenizer_config
@@ -114,8 +114,7 @@ class MLXLanguageModel:
 
         except ImportError:
             raise ImportError(
-                "mlx-lm is required for LLM inference. "
-                "Install with: pip install mlx-lm"
+                "mlx-lm is required for LLM inference. Install with: pip install mlx-lm"
             )
         except Exception as e:
             logger.error(f"Failed to load model: {e}")

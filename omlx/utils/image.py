@@ -11,7 +11,7 @@ import base64
 import hashlib
 import io
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PIL import Image, ImageOps
 
@@ -62,8 +62,8 @@ def load_image(url_or_base64: str) -> Image.Image:
 
 
 def extract_images_from_messages(
-    messages: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[Image.Image]]:
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[Image.Image]]:
     """
     Extract images from OpenAI-format messages.
 
@@ -106,7 +106,11 @@ def extract_images_from_messages(
                 part_type = getattr(part, "type", None)
 
             if part_type == "text":
-                text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
+                text = (
+                    part.get("text")
+                    if isinstance(part, dict)
+                    else getattr(part, "text", None)
+                )
                 if text:
                     text_parts.append(text)
 
@@ -114,7 +118,8 @@ def extract_images_from_messages(
                 # OpenAI chat format: {"type":"image_url","image_url":{"url":"..."}}
                 # Responses-style format: {"type":"input_image","image_url":"..."}
                 image_url_obj = (
-                    part.get("image_url") if isinstance(part, dict)
+                    part.get("image_url")
+                    if isinstance(part, dict)
                     else getattr(part, "image_url", None)
                 )
                 if image_url_obj is None and isinstance(part, dict):
@@ -145,7 +150,7 @@ def extract_images_from_messages(
     return text_messages, images
 
 
-def compute_image_hash(images: List[Image.Image]) -> Optional[str]:
+def compute_image_hash(images: list[Image.Image]) -> str | None:
     """
     Compute a SHA256 hash from a list of images for prefix cache deduplication.
 
@@ -172,7 +177,7 @@ def compute_image_hash(images: List[Image.Image]) -> Optional[str]:
     return hasher.hexdigest()
 
 
-def compute_per_image_hashes(images: List[Image.Image]) -> List[str]:
+def compute_per_image_hashes(images: list[Image.Image]) -> list[str]:
     """Compute individual SHA256 hashes for each image.
 
     Returns a list of hex-encoded hash strings, one per image.

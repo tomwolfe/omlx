@@ -77,6 +77,7 @@ def apply() -> bool:
 # TextConfig — retain mtp_num_hidden_layers as instance attribute.
 # ---------------------------------------------------------------------------
 
+
 def _patch_text_config(q35_config: Any) -> None:
     """Wrap ``TextConfig.from_dict`` so ``mtp_num_hidden_layers`` survives.
 
@@ -108,6 +109,7 @@ def _patch_text_config(q35_config: Any) -> None:
 # ---------------------------------------------------------------------------
 # MTPDecoderLayer + MTPModule — dense VLM classes.
 # ---------------------------------------------------------------------------
+
 
 def _register_mtp_classes_for_vlm(q35_lang: Any) -> None:
     """Attach ``MTPDecoderLayer`` / ``MTPModule`` to the mlx-vlm qwen3_5
@@ -179,6 +181,7 @@ def _register_mtp_classes_for_vlm(q35_lang: Any) -> None:
 # ---------------------------------------------------------------------------
 # LanguageModel — wrap __init__, support return_hidden, add mtp_forward/cache.
 # ---------------------------------------------------------------------------
+
 
 def _patch_vlm_language_model(q35_lang: Any) -> None:
     cls = q35_lang.LanguageModel
@@ -265,6 +268,7 @@ def _patch_vlm_language_model(q35_lang: Any) -> None:
 # ---------------------------------------------------------------------------
 # VLMModelAdapter — add MTP pass-through methods at runtime.
 # ---------------------------------------------------------------------------
+
 
 def _patch_vlm_model_adapter() -> None:
     """Extend ``omlx.models.vlm.VLMModelAdapter`` with MTP plumbing.

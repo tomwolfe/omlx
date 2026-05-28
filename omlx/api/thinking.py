@@ -10,23 +10,21 @@ their chain-of-thought reasoning in <think>...</think> tags.
 """
 
 import re
-from typing import List, Optional, Tuple
-
 
 # Tags used for thinking blocks
 _OPEN_TAG = "<think>"
 _CLOSE_TAG = "</think>"
-_OPEN_LEN = len(_OPEN_TAG)   # 7
+_OPEN_LEN = len(_OPEN_TAG)  # 7
 _CLOSE_LEN = len(_CLOSE_TAG)  # 8
 
 # Regex for non-streaming extraction (complete text)
-_THINKING_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+_THINKING_PATTERN = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 # Handle case where <think> is missing but </think> is present
 # (scheduler prepends <think>\n but the tag may be split)
-_THINKING_TAIL_PATTERN = re.compile(r'^(.*?)</think>', re.DOTALL)
+_THINKING_TAIL_PATTERN = re.compile(r"^(.*?)</think>", re.DOTALL)
 
 
-def extract_thinking(text: str) -> Tuple[str, str]:
+def extract_thinking(text: str) -> tuple[str, str]:
     """Extract thinking and content from complete text.
 
     Handles:
@@ -64,26 +62,26 @@ def extract_thinking(text: str) -> Tuple[str, str]:
         if not match:
             break
         thinking_parts.append(match.group(1))
-        remaining = remaining[:match.start()] + remaining[match.end():]
+        remaining = remaining[: match.start()] + remaining[match.end() :]
 
     if thinking_parts:
         thinking = "\n".join(thinking_parts).strip()
         return (thinking, remaining.strip())
 
     # Handle partial: content before </think> without <think> tag
-    if '</think>' in text and '<think>' not in text:
+    if "</think>" in text and "<think>" not in text:
         match = _THINKING_TAIL_PATTERN.match(text)
         if match:
             thinking = match.group(1).strip()
-            remaining = text[match.end():].strip()
+            remaining = text[match.end() :].strip()
             return (thinking, remaining)
 
     # Malformed: <think> opened but never closed. Drop the open tag and
     # treat the remainder as content so the answer body is not empty.
-    if '<think>' in text and '</think>' not in text:
-        idx = text.index('<think>')
+    if "<think>" in text and "</think>" not in text:
+        idx = text.index("<think>")
         before = text[:idx]
-        after = text[idx + _OPEN_LEN:]
+        after = text[idx + _OPEN_LEN :]
         return ("", (before + after).strip())
 
     return ("", text)
@@ -121,10 +119,10 @@ class ThinkingParser:
         # text once more as content — the client will show both panels but
         # the answer body is no longer empty.
         self._close_seen: bool = False
-        self._thinking_accumulated: List[str] = []
+        self._thinking_accumulated: list[str] = []
         self._content_emitted: bool = False
 
-    def feed(self, text: str) -> Tuple[str, str]:
+    def feed(self, text: str) -> tuple[str, str]:
         """Feed a text chunk, return (thinking_delta, content_delta).
 
         Args:
@@ -145,7 +143,7 @@ class ThinkingParser:
 
         i = 0
         while i < len(text):
-            if text[i] == '<':
+            if text[i] == "<":
                 # Check if this could be a tag start
                 remaining = text[i:]
 
@@ -170,9 +168,9 @@ class ThinkingParser:
 
                 # Not a tag, emit the '<' as regular content
                 if self._in_thinking:
-                    thinking_out.append('<')
+                    thinking_out.append("<")
                 else:
-                    content_out.append('<')
+                    content_out.append("<")
                 i += 1
             else:
                 if self._in_thinking:
@@ -189,7 +187,7 @@ class ThinkingParser:
             self._content_emitted = True
         return (thinking_delta, content_delta)
 
-    def finish(self) -> Tuple[str, str]:
+    def finish(self) -> tuple[str, str]:
         """Flush any remaining buffered content.
 
         Should be called when the stream is complete to emit any
@@ -249,10 +247,7 @@ class ThinkingParser:
         # Check against both tags
         if _OPEN_TAG[:length] == text:
             return True
-        if _CLOSE_TAG[:length] == text:
-            return True
-
-        return False
+        return _CLOSE_TAG[:length] == text
 
 
 class ThinkingBudgetProcessor:
@@ -273,11 +268,11 @@ class ThinkingBudgetProcessor:
 
     def __init__(
         self,
-        think_end_token_ids: List[int],
+        think_end_token_ids: list[int],
         budget: int,
-        think_start_token_id: Optional[int] = None,
-        leading_token_ids: Optional[List[int]] = None,
-        trailing_token_ids: Optional[List[int]] = None,
+        think_start_token_id: int | None = None,
+        leading_token_ids: list[int] | None = None,
+        trailing_token_ids: list[int] | None = None,
     ):
         self._think_end_ids = think_end_token_ids
         # Full force sequence: \n + </think> + \n\n (matches training pattern)
@@ -299,7 +294,7 @@ class ThinkingBudgetProcessor:
         # After forced sequence, suppress duplicate </think> tokens
         self._suppress_end: bool = False
         # Sliding window for multi-token end detection
-        self._recent_tokens: List[int] = []
+        self._recent_tokens: list[int] = []
         # Flat set for fast single-token suppression check
         self._end_id_set = set(think_end_token_ids)
 
@@ -370,7 +365,11 @@ class ThinkingBudgetProcessor:
                 return
 
         # Detect re-entry into thinking (rare but possible)
-        if not self._in_thinking and self._think_start_id and token_id == self._think_start_id:
+        if (
+            not self._in_thinking
+            and self._think_start_id
+            and token_id == self._think_start_id
+        ):
             self._in_thinking = True
 
     def _force_next_token(self, logits, mx):

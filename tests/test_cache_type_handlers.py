@@ -6,8 +6,7 @@ This module tests the abstract and concrete handlers for various cache types
 from mlx-lm, enabling type-aware cache operations like slicing and reconstruction.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,7 +15,6 @@ from omlx.cache.type_handlers import (
     CacheListHandler,
     CacheStateInfo,
     CacheType,
-    CacheTypeHandler,
     DefaultCacheHandler,
     KVCacheHandler,
     RotatingKVCacheHandler,
@@ -158,6 +156,7 @@ class TestKVCacheHandlerWithMLX:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -327,6 +326,7 @@ class TestRotatingKVCacheHandlerWithMLX:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -722,7 +722,10 @@ class TestCacheTypeRegistry:
         # RotatingKVCache-like
         mock_rotating = MagicMock()
         mock_rotating.__class__.__name__ = "RotatingKVCache"
-        assert CacheTypeRegistry.detect_cache_type(mock_rotating) == CacheType.ROTATING_KVCACHE
+        assert (
+            CacheTypeRegistry.detect_cache_type(mock_rotating)
+            == CacheType.ROTATING_KVCACHE
+        )
 
     def test_detect_cache_type_by_attributes(self):
         """Test detecting cache type by attributes when class name unknown."""
@@ -970,6 +973,7 @@ class TestCacheListHandlerWithMLX:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -1019,7 +1023,6 @@ class TestCacheListHandlerWithMLX:
         )
 
         import logging
-        from unittest.mock import patch
 
         with patch.object(
             logging.getLogger("omlx.cache.type_handlers"), "debug"

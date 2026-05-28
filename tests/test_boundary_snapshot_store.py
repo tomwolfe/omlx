@@ -1,14 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for BoundarySnapshotSSDStore and _BoundarySnapshotProvider."""
 
-import json
-import shutil
-import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 # MLX may not be available in CI — tests skip gracefully.
@@ -24,13 +20,12 @@ pytestmark = pytest.mark.skipif(not HAS_MLX, reason="MLX not available")
 
 from omlx.cache.boundary_snapshot_store import BoundarySnapshotSSDStore
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_extracted(num_layers: int = 4) -> List[Dict[str, Any]]:
+def _make_extracted(num_layers: int = 4) -> list[dict[str, Any]]:
     """Create a list of extracted cache state dicts (mimics _extract_cache_states output).
 
     Layers 0 and 2 are KVCache placeholders (empty state).
@@ -40,22 +35,26 @@ def _make_extracted(num_layers: int = 4) -> List[Dict[str, Any]]:
     for i in range(num_layers):
         if i % 2 == 0:
             # KVCache placeholder (skipped sliceable layer)
-            result.append({
-                "state": (),
-                "meta_state": (),
-                "class_name": "KVCache",
-                "cache_type": "KVCache",
-            })
+            result.append(
+                {
+                    "state": (),
+                    "meta_state": (),
+                    "class_name": "KVCache",
+                    "cache_type": "KVCache",
+                }
+            )
         else:
             # ArraysCache with small tensors (conv_state + recurrent_state)
             conv_state = mx.ones((1, 3, 16), dtype=mx.float16)
             recurrent_state = mx.ones((1, 4, 8, 12), dtype=mx.bfloat16)
-            result.append({
-                "state": (conv_state, recurrent_state),
-                "meta_state": (),
-                "class_name": "ArraysCache",
-                "cache_type": "ArraysCache",
-            })
+            result.append(
+                {
+                    "state": (conv_state, recurrent_state),
+                    "meta_state": (),
+                    "class_name": "ArraysCache",
+                    "cache_type": "ArraysCache",
+                }
+            )
     return result
 
 
@@ -80,9 +79,7 @@ class TestBoundarySnapshotSSDStore:
 
     def test_save_and_load_roundtrip(self):
         """Save a snapshot and load it back — tensors should match."""
-        ok = self.store.save(
-            "req-1", 1024, [MagicMock()], _mock_extract_cache_states
-        )
+        ok = self.store.save("req-1", 1024, [MagicMock()], _mock_extract_cache_states)
         assert ok
 
         loaded = self.store.load("req-1", 1024)
@@ -154,9 +151,7 @@ class TestBoundarySnapshotSSDStore:
     def test_multiple_snapshots_per_request(self):
         """Multiple token boundaries for the same request."""
         for tc in [1024, 2048, 3072, 4096]:
-            ok = self.store.save(
-                "req-1", tc, [MagicMock()], _mock_extract_cache_states
-            )
+            ok = self.store.save("req-1", tc, [MagicMock()], _mock_extract_cache_states)
             assert ok
 
         for tc in [1024, 2048, 3072, 4096]:
@@ -165,6 +160,7 @@ class TestBoundarySnapshotSSDStore:
 
     def test_save_returns_false_without_mlx(self):
         """Graceful failure when extract function returns empty."""
+
         def failing_extract(cache):
             return [], None
 
@@ -173,16 +169,19 @@ class TestBoundarySnapshotSSDStore:
 
     def test_bfloat16_roundtrip(self):
         """Ensure bfloat16 tensors survive serialization."""
+
         def bf16_extract(cache):
-            return [{
-                "state": (
-                    mx.ones((2, 3), dtype=mx.bfloat16),
-                    mx.zeros((2, 3), dtype=mx.bfloat16),
-                ),
-                "meta_state": (1, 2, 3),
-                "class_name": "ArraysCache",
-                "cache_type": "ArraysCache",
-            }], None
+            return [
+                {
+                    "state": (
+                        mx.ones((2, 3), dtype=mx.bfloat16),
+                        mx.zeros((2, 3), dtype=mx.bfloat16),
+                    ),
+                    "meta_state": (1, 2, 3),
+                    "class_name": "ArraysCache",
+                    "cache_type": "ArraysCache",
+                }
+            ], None
 
         self.store.save("req-bf", 1024, [MagicMock()], bf16_extract)
         loaded = self.store.load("req-bf", 1024)
@@ -278,7 +277,9 @@ class TestBoundarySnapshotSSDStore:
         original_write = mod._write_safetensors_no_mx
 
         with patch.object(mod, "_write_safetensors_no_mx", side_effect=slow_write):
-            self.store.save("req-pinned", 1024, [MagicMock()], _mock_extract_cache_states)
+            self.store.save(
+                "req-pinned", 1024, [MagicMock()], _mock_extract_cache_states
+            )
 
             # Wait until the writer has picked up the item and is inside
             # the slow_write hook.
@@ -336,7 +337,9 @@ class TestBoundarySnapshotSSDStore:
         original_write = mod._write_safetensors_no_mx
 
         with patch.object(mod, "_write_safetensors_no_mx", side_effect=slow_write):
-            self.store.save("req-cleanup", 2048, [MagicMock()], _mock_extract_cache_states)
+            self.store.save(
+                "req-cleanup", 2048, [MagicMock()], _mock_extract_cache_states
+            )
 
             assert writer_in_item.wait(timeout=5.0), "writer never started"
 
@@ -390,9 +393,10 @@ class TestBoundarySnapshotSSDStore:
         original_write = mod._write_safetensors_no_mx
 
         # Tighten the timeout for the test so the test runs fast.
-        with patch.object(
-            type(self.store), "_CLEANUP_REQUEST_TIMEOUT_S", 0.1
-        ), patch.object(mod, "_write_safetensors_no_mx", side_effect=slow_write):
+        with (
+            patch.object(type(self.store), "_CLEANUP_REQUEST_TIMEOUT_S", 0.1),
+            patch.object(mod, "_write_safetensors_no_mx", side_effect=slow_write),
+        ):
             self.store.save(
                 "req-timeout-rescue",
                 2048,
@@ -407,11 +411,8 @@ class TestBoundarySnapshotSSDStore:
             self.store.cleanup_request("req-timeout-rescue")
 
             with self.store._cancelled_lock:
-                assert (
-                    "req-timeout-rescue" in self.store._cancelled_requests
-                ), (
-                    "counter dropped on timeout — late-rename rescue "
-                    "would be defeated"
+                assert "req-timeout-rescue" in self.store._cancelled_requests, (
+                    "counter dropped on timeout — late-rename rescue would be defeated"
                 )
 
             # Let the writer finish; rescue then drops the counter via
@@ -448,32 +449,31 @@ class TestBoundarySnapshotSSDStore:
 
         original_write = mod._write_safetensors_no_mx
 
-        with patch.object(
-            type(self.store), "_CLEANUP_REQUEST_TIMEOUT_S", 0.1
-        ), patch.object(
-            mod, "_write_safetensors_no_mx", side_effect=slow_write
+        with (
+            patch.object(type(self.store), "_CLEANUP_REQUEST_TIMEOUT_S", 0.1),
+            patch.object(mod, "_write_safetensors_no_mx", side_effect=slow_write),
         ):
             # Two items for the same rid: A pins the writer; B sits in
             # the queue behind A.
             self.store.save(
-                "req-drain", 2048, [MagicMock()],
+                "req-drain",
+                2048,
+                [MagicMock()],
                 _mock_extract_cache_states,
             )
             self.store.save(
-                "req-drain", 4096, [MagicMock()],
+                "req-drain",
+                4096,
+                [MagicMock()],
                 _mock_extract_cache_states,
             )
-            assert writer_in_item.wait(timeout=5.0), (
-                "writer never started item A"
-            )
+            assert writer_in_item.wait(timeout=5.0), "writer never started item A"
 
             # cleanup_request snapshots both pending items, sets
             # counter=2, then times out (writer still pinned on A).
             self.store.cleanup_request("req-drain")
             with self.store._cancelled_lock:
-                assert (
-                    self.store._cancelled_requests.get("req-drain") == 2
-                ), (
+                assert self.store._cancelled_requests.get("req-drain") == 2, (
                     "cleanup_request did not record both pending items "
                     "before timing out"
                 )
@@ -529,27 +529,24 @@ class TestBoundarySnapshotSSDStore:
 
         original_write = mod._write_safetensors_no_mx
 
-        with patch.object(
-            type(self.store), "_CLEANUP_REQUEST_TIMEOUT_S", 0.1
-        ), patch.object(
-            mod, "_write_safetensors_no_mx", side_effect=slow_write
+        with (
+            patch.object(type(self.store), "_CLEANUP_REQUEST_TIMEOUT_S", 0.1),
+            patch.object(mod, "_write_safetensors_no_mx", side_effect=slow_write),
         ):
             self.store.save(
-                "req-blocker", 2048, [MagicMock()],
+                "req-blocker",
+                2048,
+                [MagicMock()],
                 _mock_extract_cache_states,
             )
-            assert writer_in_item.wait(timeout=5.0), (
-                "writer never started blocker item"
-            )
+            assert writer_in_item.wait(timeout=5.0), "writer never started blocker item"
 
             # cleanup_request for an rid that was NEVER saved. count==0.
             # _writer_busy is held by the blocker → acquire times out.
             self.store.cleanup_request("never-saved-rid")
 
             with self.store._cancelled_lock:
-                assert (
-                    "never-saved-rid" not in self.store._cancelled_requests
-                ), (
+                assert "never-saved-rid" not in self.store._cancelled_requests, (
                     "cleanup_request bumped _cancelled_requests for an "
                     "rid with no pending items — the stale 0-counter "
                     "would silently kill every future save under that rid"
@@ -561,7 +558,9 @@ class TestBoundarySnapshotSSDStore:
             release_writer.set()
             time.sleep(0.2)  # let blocker drain
             ok = self.store.save(
-                "never-saved-rid", 4096, [MagicMock()],
+                "never-saved-rid",
+                4096,
+                [MagicMock()],
                 _mock_extract_cache_states,
             )
             assert ok, "save() failed"
@@ -572,15 +571,15 @@ class TestBoundarySnapshotSSDStore:
                     break
                 time.sleep(0.02)
             file_path = (
-                self.base_dir / "_boundary_snapshots" / "never-saved-rid"
+                self.base_dir
+                / "_boundary_snapshots"
+                / "never-saved-rid"
                 / "4096.safetensors"
             )
             # Either the file is on disk OR still buffered in pending —
             # but it must not have been silently discarded.
             with self.store._pending_lock:
-                still_pending = (
-                    "never-saved-rid", 4096
-                ) in self.store._pending_writes
+                still_pending = ("never-saved-rid", 4096) in self.store._pending_writes
             assert file_path.exists() or still_pending, (
                 "save() under rid was silently discarded — stale "
                 "_cancelled_requests entry defeated the new write"
@@ -596,17 +595,17 @@ class TestBoundarySnapshotSSDStore:
         that rid would be silently discarded by the ``_is_cancelled``
         gates.
         """
-        from unittest.mock import patch
         import queue as _queue
+        from unittest.mock import patch
 
         def _full(*args, **kwargs):
             raise _queue.Full
 
-        with patch.object(
-            self.store._write_queue, "put_nowait", side_effect=_full
-        ):
+        with patch.object(self.store._write_queue, "put_nowait", side_effect=_full):
             ok = self.store.save(
-                "req-qfull", 2048, [MagicMock()],
+                "req-qfull",
+                2048,
+                [MagicMock()],
                 _mock_extract_cache_states,
             )
 
@@ -644,8 +643,7 @@ class TestBoundarySnapshotSSDStore:
                 errors.append(e)
 
         threads = [
-            threading.Thread(target=cancel_loop, args=(f"t{tid}",))
-            for tid in range(4)
+            threading.Thread(target=cancel_loop, args=(f"t{tid}",)) for tid in range(4)
         ]
         for t in threads:
             t.start()
@@ -656,7 +654,6 @@ class TestBoundarySnapshotSSDStore:
         # both succeed.
         with self.store._cancelled_lock:
             assert len(self.store._cancelled_requests) >= 0
-
 
     def test_concurrent_save_cleanup_request_cleanup_all_no_orphans(self):
         """Stress: concurrent save() + cleanup_request() + cleanup_all().
@@ -742,8 +739,7 @@ class TestBoundarySnapshotSSDStore:
         # have "_tmp" in the stem and are not real orphans.
         real_orphans = [p for p in orphans if "_tmp" not in p.stem]
         assert not real_orphans, (
-            f"Found {len(real_orphans)} orphaned files: "
-            f"{real_orphans[:5]}"
+            f"Found {len(real_orphans)} orphaned files: {real_orphans[:5]}"
         )
 
 

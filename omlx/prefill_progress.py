@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class PrefillProgressTracker:
@@ -26,7 +26,7 @@ class PrefillProgressTracker:
     """
 
     def __init__(self) -> None:
-        self._progress: Dict[str, Dict[str, Any]] = {}
+        self._progress: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
 
     def update(
@@ -36,8 +36,8 @@ class PrefillProgressTracker:
         total: int,
         model_id: str,
         phase: str = "prefill",
-        detail: Optional[str] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        detail: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """Update prefill/spec-prefill progress for a request.
 
@@ -51,15 +51,14 @@ class PrefillProgressTracker:
             else:
                 prev = self._progress.get(request_id)
                 phase_changed = prev is not None and prev.get("phase") != phase
-                start_time = now if prev is None or phase_changed else prev["start_time"]
+                start_time = (
+                    now if prev is None or phase_changed else prev["start_time"]
+                )
 
                 if prev is not None and not phase_changed:
                     dt = now - prev["last_time"]
                     dtok = processed - prev["processed"]
-                    if dt > 0 and dtok > 0:
-                        speed = dtok / dt
-                    else:
-                        speed = prev.get("speed", 0.0)
+                    speed = dtok / dt if dt > 0 and dtok > 0 else prev.get("speed", 0.0)
                 else:
                     speed = 0.0
 
@@ -83,7 +82,7 @@ class PrefillProgressTracker:
         with self._lock:
             self._progress.pop(request_id, None)
 
-    def get_model_progress(self, model_id: str) -> List[Dict[str, Any]]:
+    def get_model_progress(self, model_id: str) -> list[dict[str, Any]]:
         """Return list of prefilling requests for a given model."""
         with self._lock:
             results = []
@@ -125,7 +124,7 @@ class PrefillProgressTracker:
 
 
 # Module-level singleton, lazily created.
-_tracker: Optional[PrefillProgressTracker] = None
+_tracker: PrefillProgressTracker | None = None
 _tracker_lock = threading.Lock()
 
 

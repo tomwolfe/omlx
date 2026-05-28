@@ -16,6 +16,7 @@ Reference: mlx-lm/mlx_lm/models/cache.py (save_prompt_cache, load_prompt_cache)
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import logging
@@ -757,7 +758,11 @@ class PagedSSDCacheManager(CacheManager):
             self._enqueue_ssd_write(evicted_hash, evicted)
 
     def _enqueue_ssd_write(
-        self, block_hash: bytes, entry: dict, *, blocking: bool = False,
+        self,
+        block_hash: bytes,
+        entry: dict,
+        *,
+        blocking: bool = False,
     ) -> bool:
         """Enqueue a hot cache entry for SSD background write.
 
@@ -807,8 +812,7 @@ class PagedSSDCacheManager(CacheManager):
         except queue.Full:
             self._stats["ssd_write_drops"] += 1
             logger.warning(
-                f"SSD write queue full, dropping evicted block "
-                f"{block_hash.hex()[:16]}"
+                f"SSD write queue full, dropping evicted block {block_hash.hex()[:16]}"
             )
             self._index.remove(block_hash)
             with self._pending_write_hashes_lock:
@@ -964,10 +968,8 @@ class PagedSSDCacheManager(CacheManager):
             layer_meta_states = None
 
             if "layer_cache_types" in metadata and metadata["layer_cache_types"]:
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     layer_cache_types = json.loads(metadata["layer_cache_types"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             if "layer_meta_states" in metadata and metadata["layer_meta_states"]:
                 try:
@@ -1055,10 +1057,8 @@ class PagedSSDCacheManager(CacheManager):
                         f"Block {block_hash.hex()[:16]} evicted during write, "
                         f"cleaning up file"
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         file_path.unlink()
-                    except Exception:
-                        pass
 
             except Exception as e:
                 if isinstance(e, OSError) and e.errno in (
@@ -1071,7 +1071,7 @@ class PagedSSDCacheManager(CacheManager):
                     )
                 else:
                     logger.error(
-                        f"Background write failed for " f"{block_hash.hex()[:16]}: {e}"
+                        f"Background write failed for {block_hash.hex()[:16]}: {e}"
                     )
                 self._stats["errors"] += 1
                 # Remove from index since file wasn't written
@@ -1144,8 +1144,7 @@ class PagedSSDCacheManager(CacheManager):
         if not self._hot_cache_enabled and self._write_queue.full():
             self._stats["ssd_write_drops"] += 1
             logger.warning(
-                f"SSD cache write queue full, skipping save for "
-                f"{block_hash.hex()[:16]}"
+                f"SSD cache write queue full, skipping save for {block_hash.hex()[:16]}"
             )
             return False
 
@@ -1170,9 +1169,7 @@ class PagedSSDCacheManager(CacheManager):
             #   is uniform regardless of whether the producer (prefix_cache,
             #   etc.) has been migrated to emit ``__nstate__`` markers yet.
             arrays = {}
-            cache_list_meta = (
-                {}
-            )  # Per-layer sidecar metadata (sub_count, state_count, etc.)
+            cache_list_meta = {}  # Per-layer sidecar metadata (sub_count, state_count, etc.)
 
             def _store_nstate_elements(prefix: str, elements):
                 """Write N elements as ``{prefix}_state_{k}`` keys with a
@@ -1519,10 +1516,8 @@ class PagedSSDCacheManager(CacheManager):
                 sub_count_key = f"layer_{i}_sub_count"
                 sub_count = 0
                 if file_metadata and sub_count_key in file_metadata:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         sub_count = int(file_metadata[sub_count_key])
-                    except (ValueError, TypeError):
-                        pass
 
                 if sub_count > 0:
                     sub_tensors: list[Any] = []
@@ -1760,10 +1755,8 @@ class PagedSSDCacheManager(CacheManager):
             self._stats["errors"] += 1
             # Remove corrupted entry
             self._index.remove(block_hash)
-            try:
+            with contextlib.suppress(Exception):
                 file_path.unlink()
-            except Exception:
-                pass
             return None
 
     def load_block_with_metadata(
@@ -1825,8 +1818,7 @@ class PagedSSDCacheManager(CacheManager):
             self._stats["hits"] += 1
             self._stats["hot_cache_hits"] += 1
             logger.debug(
-                f"Loaded block with metadata from hot cache: "
-                f"{block_hash.hex()[:16]}..."
+                f"Loaded block with metadata from hot cache: {block_hash.hex()[:16]}..."
             )
             return cache_data, metadata_dict
 
@@ -1954,10 +1946,8 @@ class PagedSSDCacheManager(CacheManager):
             self._stats["errors"] += 1
             # Remove corrupted entry
             self._index.remove(block_hash)
-            try:
+            with contextlib.suppress(Exception):
                 file_path.unlink()
-            except Exception:
-                pass
             return None, None
 
     def get_block_metadata(self, block_hash: bytes) -> PagedSSDBlockMetadata | None:
@@ -2049,30 +2039,21 @@ class PagedSSDCacheManager(CacheManager):
             if not file_path.exists():
                 return False
             try:
-                arrays, file_metadata = mx.load(
-                    str(file_path), return_metadata=True
-                )
+                arrays, file_metadata = mx.load(str(file_path), return_metadata=True)
                 if (
                     file_metadata
                     and file_metadata.get("omlx_cache_format_version")
                     not in _READABLE_CACHE_FORMAT_VERSIONS
                 ):
                     return False
-                self._promote_to_hot_cache(
-                    block_hash, arrays, file_metadata, metadata
-                )
+                self._promote_to_hot_cache(block_hash, arrays, file_metadata, metadata)
                 return True
             except Exception as e:
-                logger.warning(
-                    f"Preload failed for block {block_hash.hex()[:16]}: {e}"
-                )
+                logger.warning(f"Preload failed for block {block_hash.hex()[:16]}: {e}")
                 return False
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(_load_one, bh, meta): bh
-                for bh, meta in to_load
-            }
+            futures = {executor.submit(_load_one, bh, meta): bh for bh, meta in to_load}
             for future in as_completed(futures):
                 try:
                     if future.result():
@@ -2310,9 +2291,7 @@ class PagedSSDCacheManager(CacheManager):
                 return False
             if candidate == normalized_name:
                 return True
-            if basename and os.path.basename(candidate) == basename:
-                return True
-            return False
+            return bool(basename and os.path.basename(candidate) == basename)
 
         with self._lock:
             indexed_entries = [

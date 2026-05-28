@@ -17,30 +17,31 @@ import asyncio
 import gc
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from .model_settings import ModelSettingsManager
+
+import contextlib
 
 import mlx.core as mx
 
 from .engine import BaseEngine, BatchedEngine
 from .engine.embedding import EmbeddingEngine
 from .engine.reranker import RerankerEngine
-from .engine.stt import STTEngine
 from .engine.sts import STSEngine
+from .engine.stt import STTEngine
 from .engine.tts import TTSEngine
 from .engine.vlm import VLMBatchedEngine
+from .engine_core import get_mlx_executor
 from .exceptions import (
-    EnginePoolError,
     InsufficientMemoryError,
     ModelLoadingError,
     ModelNotFoundError,
     ModelTooLargeError,
 )
-from .model_discovery import DiscoveredModel, discover_models, format_size
-from .engine_core import get_mlx_executor
+from .model_discovery import discover_models, format_size
 from .scheduler import SchedulerConfig
 from .utils.proc_memory import get_phys_footprint
 
@@ -53,14 +54,39 @@ class EngineEntry:
 
     model_id: str  # Directory name (e.g., "llama-3b")
     model_path: str  # Full path to model directory
-    model_type: Literal["llm", "vlm", "embedding", "reranker", "audio_stt", "audio_tts", "audio_sts"]  # Model type
-    engine_type: Literal["batched", "simple", "embedding", "reranker", "vlm", "audio_stt", "audio_tts", "audio_sts"]  # Engine type to use
+    model_type: Literal[
+        "llm", "vlm", "embedding", "reranker", "audio_stt", "audio_tts", "audio_sts"
+    ]  # Model type
+    engine_type: Literal[
+        "batched",
+        "simple",
+        "embedding",
+        "reranker",
+        "vlm",
+        "audio_stt",
+        "audio_tts",
+        "audio_sts",
+    ]  # Engine type to use
     estimated_size: int  # Pre-calculated from safetensors (bytes)
     actual_size: int | None = None  # Observed process-memory delta after load settles
-    config_model_type: str = ""  # Raw model_type from config.json (e.g., "deepseekocr_2")
-    thinking_default: bool | None = None  # True if model thinks by default, False if not, None if unknown
-    preserve_thinking_default: bool | None = None  # True when template supports preserve_thinking (Qwen 3.6+)
-    engine: BaseEngine | EmbeddingEngine | RerankerEngine | STTEngine | STSEngine | TTSEngine | None = None  # Loaded engine instance
+    config_model_type: str = (
+        ""  # Raw model_type from config.json (e.g., "deepseekocr_2")
+    )
+    thinking_default: bool | None = (
+        None  # True if model thinks by default, False if not, None if unknown
+    )
+    preserve_thinking_default: bool | None = (
+        None  # True when template supports preserve_thinking (Qwen 3.6+)
+    )
+    engine: (
+        BaseEngine
+        | EmbeddingEngine
+        | RerankerEngine
+        | STTEngine
+        | STSEngine
+        | TTSEngine
+        | None
+    ) = None  # Loaded engine instance
     last_access: float = 0.0  # Timestamp for LRU (0 if never loaded)
     is_loading: bool = False  # Prevent concurrent loads
     loading_started_at: float | None = None  # Timestamp when current load started
@@ -175,7 +201,9 @@ class EnginePool:
                     estimated_size=info.estimated_size,
                     config_model_type=getattr(info, "config_model_type", ""),
                     thinking_default=getattr(info, "thinking_default", None),
-                    preserve_thinking_default=getattr(info, "preserve_thinking_default", None),
+                    preserve_thinking_default=getattr(
+                        info, "preserve_thinking_default", None
+                    ),
                     is_pinned=model_id in pinned_set,
                 )
 
@@ -210,9 +238,7 @@ class EnginePool:
         "audio_sts": "audio_sts",
     }
 
-    def apply_settings_overrides(
-        self, settings_manager: "ModelSettingsManager"
-    ) -> None:
+    def apply_settings_overrides(self, settings_manager: ModelSettingsManager) -> None:
         """Apply model_type_override from persisted settings to discovered entries."""
         for model_id, entry in self._entries.items():
             settings = settings_manager.get_settings(model_id)
@@ -305,8 +331,17 @@ class EnginePool:
         return model_id_or_alias
 
     async def get_engine(
-        self, model_id: str, force_lm: bool = False,
-    ) -> BaseEngine | EmbeddingEngine | RerankerEngine | STTEngine | STSEngine | TTSEngine:
+        self,
+        model_id: str,
+        force_lm: bool = False,
+    ) -> (
+        BaseEngine
+        | EmbeddingEngine
+        | RerankerEngine
+        | STTEngine
+        | STSEngine
+        | TTSEngine
+    ):
         """
         Get or load engine for the specified model.
 
@@ -416,9 +451,7 @@ class EnginePool:
                 continue
             try:
                 if e.engine.has_active_requests():
-                    logger.debug(
-                        f"Skipping victim '{mid}': has active requests"
-                    )
+                    logger.debug(f"Skipping victim '{mid}': has active requests")
                     continue
             except AttributeError:
                 pass
@@ -589,13 +622,22 @@ class EnginePool:
                 if dflash_enabled and dflash_draft:
                     try:
                         from .engine.dflash import DFlashEngine
+
                         engine = DFlashEngine(
                             model_name=entry.model_path,
                             draft_model_path=dflash_draft,
-                            draft_quant_enabled=getattr(model_settings, "dflash_draft_quant_enabled", False),
-                            draft_quant_weight_bits=getattr(model_settings, "dflash_draft_quant_weight_bits", 4),
-                            draft_quant_activation_bits=getattr(model_settings, "dflash_draft_quant_activation_bits", 16),
-                            draft_quant_group_size=getattr(model_settings, "dflash_draft_quant_group_size", 64),
+                            draft_quant_enabled=getattr(
+                                model_settings, "dflash_draft_quant_enabled", False
+                            ),
+                            draft_quant_weight_bits=getattr(
+                                model_settings, "dflash_draft_quant_weight_bits", 4
+                            ),
+                            draft_quant_activation_bits=getattr(
+                                model_settings, "dflash_draft_quant_activation_bits", 16
+                            ),
+                            draft_quant_group_size=getattr(
+                                model_settings, "dflash_draft_quant_group_size", 64
+                            ),
                             model_settings=model_settings,
                             fallback_engine_type=effective_type,
                             scheduler_config=self._scheduler_config,
@@ -603,7 +645,9 @@ class EnginePool:
                                 self._scheduler_config, "paged_ssd_cache_dir", None
                             ),
                         )
-                        logger.info(f"DFlash enabled for {model_id}, draft={dflash_draft}")
+                        logger.info(
+                            f"DFlash enabled for {model_id}, draft={dflash_draft}"
+                        )
                     except ImportError:
                         logger.warning(
                             f"DFlash enabled for {model_id} but dflash-mlx is not installed. "
@@ -619,7 +663,11 @@ class EnginePool:
             # When unset, defaults to False — repos with custom modeling_*.py
             # will fail to load until the user explicitly toggles this on
             # in the admin UI's model settings modal.
-            trc = bool(getattr(model_settings, "trust_remote_code", False)) if model_settings else False
+            trc = (
+                bool(getattr(model_settings, "trust_remote_code", False))
+                if model_settings
+                else False
+            )
 
             # Create engine based on engine type (if DFlash not active)
             if engine is None:
@@ -657,7 +705,9 @@ class EnginePool:
                         model_settings=model_settings,
                     )
 
-            _is_dflash_engine = engine is not None and type(engine).__name__ == "DFlashEngine"
+            _is_dflash_engine = (
+                engine is not None and type(engine).__name__ == "DFlashEngine"
+            )
 
             try:
                 await engine.start()
@@ -669,10 +719,8 @@ class EnginePool:
                         f"DFlash start failed for {model_id}: {start_error}. "
                         f"Falling back to {effective_type} engine."
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         await engine.stop()
-                    except Exception:
-                        pass
                     gc.collect()
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
@@ -714,10 +762,8 @@ class EnginePool:
                         f"(force_lm=True), falling back to VLM engine: "
                         f"{start_error}"
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         await engine.stop()
-                    except Exception:
-                        pass
                     gc.collect()
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
@@ -749,10 +795,8 @@ class EnginePool:
                         f"VLM loading failed for {model_id}, "
                         f"falling back to LLM: {start_error}"
                     )
-                    try:
+                    with contextlib.suppress(Exception):
                         await engine.stop()
-                    except Exception:
-                        pass
                     gc.collect()
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
@@ -777,23 +821,18 @@ class EnginePool:
                     entry.model_type = "llm"
                     entry.engine_type = "batched"
                     logger.info(
-                        f"Successfully loaded {model_id} as LLM "
-                        f"(fallback from VLM)"
+                        f"Successfully loaded {model_id} as LLM (fallback from VLM)"
                     )
                 else:
                     raise
 
             # Check if memory enforcer requested abort during loading
             if entry.abort_loading:
-                logger.warning(
-                    f"Model load aborted by memory enforcer: {model_id}"
-                )
+                logger.warning(f"Model load aborted by memory enforcer: {model_id}")
                 try:
                     await engine.stop()
                 except Exception as e:
-                    logger.warning(
-                        f"Error stopping aborted engine for {model_id}: {e}"
-                    )
+                    logger.warning(f"Error stopping aborted engine for {model_id}: {e}")
                 gc.collect()
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
@@ -801,8 +840,7 @@ class EnginePool:
                     lambda: (mx.synchronize(), mx.clear_cache()),
                 )
                 raise ModelLoadingError(
-                    f"Model {model_id} load aborted: "
-                    f"process memory limit exceeded"
+                    f"Model {model_id} load aborted: process memory limit exceeded"
                 )
 
             entry.engine = engine
@@ -820,12 +858,11 @@ class EnginePool:
             ):
                 drafter_id = model_settings.vlm_mtp_draft_model
                 drafter_entry = self._entries.get(drafter_id)
-                drafter_path = (
-                    drafter_entry.model_path if drafter_entry else drafter_id
-                )
+                drafter_path = drafter_entry.model_path if drafter_entry else drafter_id
 
                 def _load_drafter_sync(path: str = drafter_path):
                     from .speculative.vlm_mtp import load_vlm_mtp_drafter
+
                     return load_vlm_mtp_drafter(path)
 
                 loop = asyncio.get_running_loop()
@@ -841,9 +878,7 @@ class EnginePool:
                     drafter = None
                 if drafter is not None:
                     engine.set_vlm_mtp_drafter(drafter)
-                    logger.info(
-                        f"VLM MTP enabled for {model_id}, drafter={drafter_id}"
-                    )
+                    logger.info(f"VLM MTP enabled for {model_id}, drafter={drafter_id}")
                 else:
                     logger.warning(
                         f"VLM MTP toggle on for {model_id} but drafter "
@@ -877,9 +912,13 @@ class EnginePool:
                 f"total: {format_size(self._current_model_memory)})"
             )
         finally:
-            if load_completed and load_started_at is not None and entry.estimated_size > 0:
+            if (
+                load_completed
+                and load_started_at is not None
+                and entry.estimated_size > 0
+            ):
                 elapsed = max(0.0, time.monotonic() - load_started_at)
-                size_gb = entry.estimated_size / (1024 ** 3)
+                size_gb = entry.estimated_size / (1024**3)
                 if size_gb > 0 and elapsed > 0:
                     sample = elapsed / size_gb
                     if self._load_seconds_per_gb_ema is None:
@@ -939,7 +978,9 @@ class EnginePool:
             "final_ceiling": self._current_ceiling(),
             "current_model_memory": self._current_model_memory,
             "model_count": len(self._entries),
-            "loaded_count": sum(1 for e in self._entries.values() if e.engine is not None),
+            "loaded_count": sum(
+                1 for e in self._entries.values() if e.engine is not None
+            ),
             "load_seconds_per_gb_estimate": self._load_seconds_per_gb_ema,
             "load_time_observations": self._load_time_observations,
             "models": [

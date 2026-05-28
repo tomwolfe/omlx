@@ -10,67 +10,37 @@ machine. Mitigations: subprocess with timeout, memory limits via resource
 module, temp file cleanup. Users are warned in the UI before running.
 """
 
+import contextlib
 import json
 import logging
 import os
-import re
 import resource
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Optional
 
-from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .base import BaseBenchmark
 from .constants import EXEC_MEMORY_LIMIT_BYTES_LCB, EXEC_TIMEOUT_SECONDS_LCB
 from .datasets import deterministic_sample, load_jsonl
+from .utils import extract_last_code_block
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 
 
-def _extract_code(response: str) -> str:
-    """Extract Python code from model response.
-
-    Looks for ```python...``` blocks first, then ```...``` blocks,
-    then falls back to the entire response.
-    """
-    match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    lines = response.strip().split("\n")
-    code_lines = []
-    in_code = False
-    for line in lines:
-        if not in_code and (
-            line.startswith("def ")
-            or line.startswith("class ")
-            or line.startswith("import ")
-            or line.startswith("from ")
-            or line.startswith("#")
-        ):
-            in_code = True
-        if in_code:
-            code_lines.append(line)
-
-    return "\n".join(code_lines) if code_lines else response.strip()
-
-
 def _set_resource_limits():
     """Set resource limits for subprocess. Called via preexec_fn."""
-    try:
-        resource.setrlimit(resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES_LCB, EXEC_MEMORY_LIMIT_BYTES_LCB))
-    except (ValueError, resource.error):
-        pass
-    try:
-        resource.setrlimit(resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS_LCB + 5, EXEC_TIMEOUT_SECONDS_LCB + 5))
-    except (ValueError, resource.error):
-        pass
+    with contextlib.suppress(OSError, ValueError):
+        resource.setrlimit(
+            resource.RLIMIT_AS,
+            (EXEC_MEMORY_LIMIT_BYTES_LCB, EXEC_MEMORY_LIMIT_BYTES_LCB),
+        )
+    with contextlib.suppress(OSError, ValueError):
+        resource.setrlimit(
+            resource.RLIMIT_CPU,
+            (EXEC_TIMEOUT_SECONDS_LCB + 5, EXEC_TIMEOUT_SECONDS_LCB + 5),
+        )
 
 
 def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
@@ -79,9 +49,7 @@ def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
     Returns:
         (stdout, success, error_message)
     """
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(code)
         tmp_path = f.name
 
@@ -108,10 +76,8 @@ def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
     except Exception as e:
         return "", False, str(e)[:500]
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
 
 
 class LiveCodeBenchBenchmark(BaseBenchmark):
@@ -144,15 +110,17 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
             if not inputs or not outputs:
                 continue
 
-            normalized.append({
-                "id": item.get("question_id", str(i)),
-                "title": item.get("question_title", f"Problem {i}"),
-                "description": item.get("question_content", ""),
-                "inputs": inputs,
-                "outputs": outputs,
-                "difficulty": item.get("difficulty", ""),
-                "starter_code": item.get("starter_code", ""),
-            })
+            normalized.append(
+                {
+                    "id": item.get("question_id", str(i)),
+                    "title": item.get("question_title", f"Problem {i}"),
+                    "description": item.get("question_content", ""),
+                    "inputs": inputs,
+                    "outputs": outputs,
+                    "difficulty": item.get("difficulty", ""),
+                    "starter_code": item.get("starter_code", ""),
+                }
+            )
 
         logger.info(f"LiveCodeBench: loaded {len(normalized)} problems")
 
@@ -178,7 +146,7 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         """Extract code from the response (last code block to skip drafts)."""
-        return self._extract_last_code_block(response)
+        return extract_last_code_block(response)
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         """Execute code and check against test cases.
@@ -193,7 +161,11 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
 
         for inp, expected_out in zip(inputs, outputs):
             stdin_input = inp if isinstance(inp, str) else str(inp)
-            expected = expected_out.strip() if isinstance(expected_out, str) else str(expected_out).strip()
+            expected = (
+                expected_out.strip()
+                if isinstance(expected_out, str)
+                else str(expected_out).strip()
+            )
 
             stdout, success, error = _execute_code(predicted, stdin_input)
             if not success:

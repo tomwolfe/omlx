@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ThinkingBudgetProcessor logits processor."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,7 +15,6 @@ except ImportError:
 
 from omlx.api.thinking import ThinkingBudgetProcessor
 from omlx.model_settings import ModelSettings
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -111,7 +110,9 @@ class TestThinkingBudgetProcessor:
         assert logits1[0, self.NEWLINE_ID].item() == 0.0
 
         # Call 3: _force_idx advances to 2 == len([42, 99]) → suppression
-        logits2 = proc(_make_tokens(10, self.THINK_END_ID, self.NEWLINE_ID), _make_logits())
+        logits2 = proc(
+            _make_tokens(10, self.THINK_END_ID, self.NEWLINE_ID), _make_logits()
+        )
         assert proc._suppress_end
         assert logits2[0, self.THINK_END_ID].item() == float("-inf")
 
@@ -219,7 +220,9 @@ class TestModelSettingsThinkingBudget:
     """Test thinking_budget fields in ModelSettings."""
 
     def test_to_dict_includes_thinking_budget(self):
-        settings = ModelSettings(thinking_budget_enabled=True, thinking_budget_tokens=4096)
+        settings = ModelSettings(
+            thinking_budget_enabled=True, thinking_budget_tokens=4096
+        )
         d = settings.to_dict()
         assert d["thinking_budget_enabled"] is True
         assert d["thinking_budget_tokens"] == 4096
@@ -251,6 +254,7 @@ class TestResolveThinkingBudget:
 
     def _import_resolve(self):
         from omlx.server import _resolve_thinking_budget
+
         return _resolve_thinking_budget
 
     def test_request_override_takes_priority(self):

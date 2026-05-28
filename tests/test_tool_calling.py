@@ -7,10 +7,17 @@ Tests JSON schema validation, JSON extraction, and tool conversion functions.
 
 import json
 import logging
-import pytest
-
 from unittest.mock import MagicMock
 
+import pytest
+
+from omlx.api.openai_models import (
+    FunctionCall,
+    ResponseFormat,
+    ResponseFormatJsonSchema,
+    ToolCall,
+    ToolDefinition,
+)
 from omlx.api.tool_calling import (
     ToolCallStreamFilter,
     _gemma4_args_to_json_robust,
@@ -27,13 +34,6 @@ from omlx.api.tool_calling import (
     parse_tool_calls_with_thinking_fallback,
     restore_gemma4_param_names,
     validate_json_schema,
-)
-from omlx.api.openai_models import (
-    FunctionCall,
-    ResponseFormat,
-    ResponseFormatJsonSchema,
-    ToolCall,
-    ToolDefinition,
 )
 
 
@@ -1161,8 +1161,7 @@ class TestParseToolCallsSyntaxError:
         assert tool_calls is None or len(tool_calls) == 0
         # Warning emitted so failures are visible rather than silent.
         assert any(
-            "Native tool parser failed" in r.message
-            and "SyntaxError" in r.message
+            "Native tool parser failed" in r.message and "SyntaxError" in r.message
             for r in caplog.records
         )
 
@@ -1418,7 +1417,9 @@ class TestParseToolCallsWithThinkingFallback:
 
     def test_thinking_fallback_blocked_when_regular_content_exists(self):
         """Tool calls in thinking are discarded when model produced regular text."""
-        thinking = '<tool_call>{"name": "search", "arguments": {"q": "weather"}}</tool_call>'
+        thinking = (
+            '<tool_call>{"name": "search", "arguments": {"q": "weather"}}</tool_call>'
+        )
         regular = "The weather is sunny today."
         tok = _make_tokenizer()
 
@@ -1430,13 +1431,20 @@ class TestParseToolCallsWithThinkingFallback:
 
     def test_thinking_fallback_filters_unknown_tools(self):
         """Tool calls with names not in provided tools list are discarded."""
-        thinking = '<tool_call>{"name": "hallucinated_tool", "arguments": {}}</tool_call>'
+        thinking = (
+            '<tool_call>{"name": "hallucinated_tool", "arguments": {}}</tool_call>'
+        )
         regular = ""
         tok = _make_tokenizer()
-        tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}]
+        tools = [
+            {"type": "function", "function": {"name": "get_weather", "parameters": {}}}
+        ]
 
         result = extract_tool_calls_with_thinking(
-            thinking, regular, tokenizer=tok, tools=tools,
+            thinking,
+            regular,
+            tokenizer=tok,
+            tools=tools,
         )
 
         assert result.tool_calls is None
@@ -1447,10 +1455,15 @@ class TestParseToolCallsWithThinkingFallback:
         thinking = '<tool_call>{"name": "get_weather", "arguments": {"city": "Seoul"}}</tool_call>'
         regular = ""
         tok = _make_tokenizer()
-        tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}]
+        tools = [
+            {"type": "function", "function": {"name": "get_weather", "parameters": {}}}
+        ]
 
         result = extract_tool_calls_with_thinking(
-            thinking, regular, tokenizer=tok, tools=tools,
+            thinking,
+            regular,
+            tokenizer=tok,
+            tools=tools,
         )
 
         assert result.tool_calls is not None
@@ -1466,10 +1479,15 @@ class TestParseToolCallsWithThinkingFallback:
         )
         regular = ""
         tok = _make_tokenizer()
-        tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}]
+        tools = [
+            {"type": "function", "function": {"name": "get_weather", "parameters": {}}}
+        ]
 
         result = extract_tool_calls_with_thinking(
-            thinking, regular, tokenizer=tok, tools=tools,
+            thinking,
+            regular,
+            tokenizer=tok,
+            tools=tools,
         )
 
         assert result.tool_calls is not None
@@ -1479,6 +1497,7 @@ class TestParseToolCallsWithThinkingFallback:
 
 # ---------------------------------------------------------------------------
 # Guard 1 regression: valid tool calls dropped with preamble (#1392)
+
 
 class TestThinkingFallbackGuardRegression:
     """Guard 1 drops valid tool calls when the model emits a preamble.
@@ -1502,28 +1521,33 @@ class TestThinkingFallbackGuardRegression:
         should preserve them.
         """
         thinking = (
-            'I need to write a file. '
+            "I need to write a file. "
             '<tool_call>{"name": "write_file", "arguments": {"path": "/tmp/test.txt", "content": "hello"}}</tool_call>'
         )
         regular = "Let me create the file:"
         tok = _make_tokenizer()
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "write_file",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string"},
-                        "content": {"type": "string"},
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "write_file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                        "required": ["path", "content"],
                     },
-                    "required": ["path", "content"],
                 },
-            },
-        }]
+            }
+        ]
 
         result = extract_tool_calls_with_thinking(
-            thinking, regular, tokenizer=tok, tools=tools,
+            thinking,
+            regular,
+            tokenizer=tok,
+            tools=tools,
         )
 
         assert result.tool_calls is not None
@@ -1535,17 +1559,20 @@ class TestThinkingFallbackGuardRegression:
         """tools=[] means 'no tools allowed' — drop thinking-embedded calls
         even when regular content is empty."""
         thinking = (
-            'I need to write a file. '
-            '<tool_call' + '>'
+            "I need to write a file. "
+            "<tool_call" + ">"
             '{"name": "write_file", "arguments": {"path": "/tmp/test.txt", "content": "hello"}}'
-            '</tool_call' + '>'
+            "</tool_call" + ">"
         )
         regular = ""
         tok = _make_tokenizer()
         tools = []
 
         result = extract_tool_calls_with_thinking(
-            thinking, regular, tokenizer=tok, tools=tools,
+            thinking,
+            regular,
+            tokenizer=tok,
+            tools=tools,
         )
 
         assert result.tool_calls is None
@@ -1555,17 +1582,20 @@ class TestThinkingFallbackGuardRegression:
         """tools=[] means 'no tools allowed' — drop thinking-embedded calls
         when regular content is also present."""
         thinking = (
-            'I need to write a file. '
-            '<tool_call' + '>'
+            "I need to write a file. "
+            "<tool_call" + ">"
             '{"name": "write_file", "arguments": {"path": "/tmp/test.txt", "content": "hello"}}'
-            '</tool_call' + '>'
+            "</tool_call" + ">"
         )
         regular = "Let me create the file:"
         tok = _make_tokenizer()
         tools = []
 
         result = extract_tool_calls_with_thinking(
-            thinking, regular, tokenizer=tok, tools=tools,
+            thinking,
+            regular,
+            tokenizer=tok,
+            tools=tools,
         )
 
         assert result.tool_calls is None
@@ -1605,9 +1635,7 @@ class TestGemma4ArgsToJsonRobust:
         assert result == {"data": None}
 
     def test_mixed_types(self):
-        result = _gemma4_args_to_json_robust(
-            '{query: <|"|>hello<|"|>, count: 5}'
-        )
+        result = _gemma4_args_to_json_robust('{query: <|"|>hello<|"|>, count: 5}')
         assert result == {"query": "hello", "count": 5}
 
     def test_standard_json_passthrough(self):
@@ -1623,16 +1651,12 @@ class TestParseGemma4ToolCallFallback:
     """Tests for _parse_gemma4_tool_call_fallback()."""
 
     def test_bare_string_args(self):
-        result = _parse_gemma4_tool_call_fallback(
-            "call:get_weather{location: Tokyo}"
-        )
+        result = _parse_gemma4_tool_call_fallback("call:get_weather{location: Tokyo}")
         assert result["name"] == "get_weather"
         assert result["arguments"] == {"location": "Tokyo"}
 
     def test_gemma4_delimiters(self):
-        result = _parse_gemma4_tool_call_fallback(
-            'call:search{query: <|"|>test<|"|>}'
-        )
+        result = _parse_gemma4_tool_call_fallback('call:search{query: <|"|>test<|"|>}')
         assert result["name"] == "search"
         assert result["arguments"] == {"query": "test"}
 
@@ -1644,9 +1668,7 @@ class TestParseGemma4ToolCallFallback:
         assert result["arguments"] == {"query": "test"}
 
     def test_standard_json_args(self):
-        result = _parse_gemma4_tool_call_fallback(
-            'call:search{"query": "hello world"}'
-        )
+        result = _parse_gemma4_tool_call_fallback('call:search{"query": "hello world"}')
         assert result["name"] == "search"
         assert result["arguments"] == {"query": "hello world"}
 
@@ -1656,9 +1678,7 @@ class TestParseGemma4ToolCallFallback:
         assert result["arguments"] == {}
 
     def test_multiple_calls(self):
-        result = _parse_gemma4_tool_call_fallback(
-            "call:a{x: 1}\ncall:b{y: 2}"
-        )
+        result = _parse_gemma4_tool_call_fallback("call:a{x: 1}\ncall:b{y: 2}")
         assert isinstance(result, list)
         assert len(result) == 2
         assert result[0]["name"] == "a"
@@ -1679,9 +1699,7 @@ class TestParseToolCallsGemma4Integration:
         tok.has_tool_calling = True
         tok.tool_call_start = "<|tool_call>"
         tok.tool_call_end = "<tool_call|>"
-        tok.tool_parser = MagicMock(
-            side_effect=ValueError("mlx-lm parser failed")
-        )
+        tok.tool_parser = MagicMock(side_effect=ValueError("mlx-lm parser failed"))
         return tok
 
     def test_fallback_parses_bare_strings(self):
@@ -1720,9 +1738,7 @@ class TestParseToolCallsGemma4Integration:
         tok.has_tool_calling = True
         tok.tool_call_start = "<start_function_call>"
         tok.tool_call_end = "<end_function_call>"
-        tok.tool_parser = MagicMock(
-            side_effect=ValueError("parser failed")
-        )
+        tok.tool_parser = MagicMock(side_effect=ValueError("parser failed"))
         text = (
             "<start_function_call>"
             "call:func{key:<escape>value<escape>}"
@@ -1740,9 +1756,7 @@ class TestParseToolCallsGemma4Integration:
         tok.has_tool_calling = True
         tok.tool_call_start = "<tool_call>"
         tok.tool_call_end = "</tool_call>"
-        tok.tool_parser = MagicMock(
-            side_effect=ValueError("parser failed")
-        )
+        tok.tool_parser = MagicMock(side_effect=ValueError("parser failed"))
         text = '<tool_call>{"name": "search", "arguments": {"q": "hi"}}</tool_call>'
 
         cleaned, tool_calls = parse_tool_calls(text, tok, None)
@@ -1758,14 +1772,21 @@ class TestEnrichToolParamsForGemma4:
 
     def test_renames_description_param(self):
         """Parameter named 'description' gets renamed to 'param_description'."""
-        tools = [{"function": {"name": "delegate", "parameters": {
-            "type": "object",
-            "properties": {
-                "description": {"type": "string"},
-                "prompt": {"type": "string"},
-            },
-            "required": ["description", "prompt"],
-        }}}]
+        tools = [
+            {
+                "function": {
+                    "name": "delegate",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "prompt": {"type": "string"},
+                        },
+                        "required": ["description", "prompt"],
+                    },
+                }
+            }
+        ]
         result = enrich_tool_params_for_gemma4(tools)
         props = result[0]["function"]["parameters"]["properties"]
         assert "param_description" in props
@@ -1776,15 +1797,22 @@ class TestEnrichToolParamsForGemma4:
 
     def test_does_not_rename_non_colliding_params(self):
         """Parameters like 'name' and 'type' are NOT renamed (not in colliding set)."""
-        tools = [{"function": {"name": "create", "parameters": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "type": {"type": "string"},
-                "count": {"type": "integer"},
-            },
-            "required": ["name", "type", "count"],
-        }}}]
+        tools = [
+            {
+                "function": {
+                    "name": "create",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "type": {"type": "string"},
+                            "count": {"type": "integer"},
+                        },
+                        "required": ["name", "type", "count"],
+                    },
+                }
+            }
+        ]
         result = enrich_tool_params_for_gemma4(tools)
         props = result[0]["function"]["parameters"]["properties"]
         assert "name" in props
@@ -1793,13 +1821,20 @@ class TestEnrichToolParamsForGemma4:
 
     def test_adds_description_to_required_params(self):
         """Required params without descriptions get auto-generated ones."""
-        tools = [{"function": {"name": "search", "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-            },
-            "required": ["query"],
-        }}}]
+        tools = [
+            {
+                "function": {
+                    "name": "search",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                        },
+                        "required": ["query"],
+                    },
+                }
+            }
+        ]
         result = enrich_tool_params_for_gemma4(tools)
         prop = result[0]["function"]["parameters"]["properties"]["query"]
         assert "description" in prop
@@ -1808,29 +1843,49 @@ class TestEnrichToolParamsForGemma4:
 
     def test_preserves_existing_descriptions(self):
         """Params that already have descriptions are left unchanged."""
-        tools = [{"function": {"name": "search", "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query text"},
-            },
-            "required": ["query"],
-        }}}]
+        tools = [
+            {
+                "function": {
+                    "name": "search",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query text",
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                }
+            }
+        ]
         result = enrich_tool_params_for_gemma4(tools)
         prop = result[0]["function"]["parameters"]["properties"]["query"]
         assert prop["description"] == "Search query text"
 
     def test_does_not_mutate_input(self):
         """Original tool definitions are not modified."""
-        tools = [{"function": {"name": "delegate", "parameters": {
-            "type": "object",
-            "properties": {
-                "description": {"type": "string"},
-            },
-            "required": ["description"],
-        }}}]
+        tools = [
+            {
+                "function": {
+                    "name": "delegate",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                        },
+                        "required": ["description"],
+                    },
+                }
+            }
+        ]
         original_props = list(tools[0]["function"]["parameters"]["properties"].keys())
         enrich_tool_params_for_gemma4(tools)
-        assert list(tools[0]["function"]["parameters"]["properties"].keys()) == original_props
+        assert (
+            list(tools[0]["function"]["parameters"]["properties"].keys())
+            == original_props
+        )
 
     def test_empty_tools_list(self):
         """Empty tools list returns empty list."""
@@ -1870,14 +1925,21 @@ class TestRestoreGemma4ParamNames:
 
     def test_round_trip(self):
         """Enrich then restore produces original param names."""
-        tools = [{"function": {"name": "delegate", "parameters": {
-            "type": "object",
-            "properties": {
-                "description": {"type": "string"},
-                "prompt": {"type": "string"},
-            },
-            "required": ["description", "prompt"],
-        }}}]
+        tools = [
+            {
+                "function": {
+                    "name": "delegate",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "prompt": {"type": "string"},
+                        },
+                        "required": ["description", "prompt"],
+                    },
+                }
+            }
+        ]
         enriched = enrich_tool_params_for_gemma4(tools)
         # Simulate model output using enriched param names
         enriched_props = enriched[0]["function"]["parameters"]["properties"]
@@ -1904,8 +1966,8 @@ class TestParseToolCallsNativeParserListReturn:
 
         text = (
             "<minimax:tool_call>"
-            "<invoke name=\"list_files\"><parameter name=\"path\">.</parameter></invoke>"
-            "<invoke name=\"read_file\"><parameter name=\"path\">README.md</parameter></invoke>"
+            '<invoke name="list_files"><parameter name="path">.</parameter></invoke>'
+            '<invoke name="read_file"><parameter name="path">README.md</parameter></invoke>'
             "</minimax:tool_call>"
         )
         cleaned, tool_calls = parse_tool_calls(text, tok)
@@ -1928,7 +1990,7 @@ class TestParseToolCallsNativeParserListReturn:
 
         text = (
             "<minimax:tool_call>"
-            "<invoke name=\"list_files\"><parameter name=\"path\">.</parameter></invoke>"
+            '<invoke name="list_files"><parameter name="path">.</parameter></invoke>'
             "</minimax:tool_call>"
         )
         cleaned, tool_calls = parse_tool_calls(text, tok)

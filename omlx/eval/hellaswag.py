@@ -7,17 +7,15 @@ Dataset bundled from Rowan/hellaswag on HuggingFace.
 """
 
 import logging
-import re
 from pathlib import Path
-from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import deterministic_sample, load_jsonl
+from .utils import extract_mc_answer, index_to_letter
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
-ANSWER_MAP = {0: "A", 1: "B", 2: "C", 3: "D"}
 
 
 class HellaSwagBenchmark(BaseBenchmark):
@@ -32,14 +30,15 @@ class HellaSwagBenchmark(BaseBenchmark):
 
         normalized = []
         for item in items:
-            label = item.get("label", "0")
-            normalized.append({
-                "id": item.get("ind", ""),
-                "context": item.get("ctx", ""),
-                "endings": item.get("endings", []),
-                "answer": int(label) if isinstance(label, (int, float)) else int(label),
-                "activity_label": item.get("activity_label", ""),
-            })
+            normalized.append(
+                {
+                    "id": item.get("ind", ""),
+                    "context": item.get("ctx", ""),
+                    "endings": item.get("endings", []),
+                    "answer": int(item.get("label", "0")),
+                    "activity_label": item.get("activity_label", ""),
+                }
+            )
 
         logger.info(f"HellaSwag: loaded {len(normalized)} questions")
 
@@ -59,18 +58,18 @@ class HellaSwagBenchmark(BaseBenchmark):
             f"Context: {context}\n",
         ]
         for i, ending in enumerate(endings[:4]):
-            parts.append(f"{ANSWER_MAP[i]}. {ending}")
+            parts.append(f"{index_to_letter(i)}. {ending}")
 
         parts.append("\nAnswer:")
 
         return [{"role": "user", "content": "\n".join(parts)}]
 
     def extract_answer(self, response: str, item: dict) -> str:
-        return self._extract_mc_answer(response, ["A", "B", "C", "D"])
+        return extract_mc_answer(response, ["A", "B", "C", "D"])
 
     def check_answer(self, predicted: str, item: dict) -> bool:
-        expected_letter = ANSWER_MAP.get(item["answer"], "")
+        expected_letter = index_to_letter(item["answer"])
         return predicted == expected_letter
 
-    def get_category(self, item: dict) -> Optional[str]:
+    def get_category(self, item: dict) -> str | None:
         return item.get("activity_label")

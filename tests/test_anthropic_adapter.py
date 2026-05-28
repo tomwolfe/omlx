@@ -6,13 +6,11 @@ Tests the AnthropicAdapter class for converting between Anthropic Messages API
 format and internal oMLX format.
 """
 
-import json
 import pytest
 
 from omlx.api.adapters.anthropic import AnthropicAdapter
 from omlx.api.adapters.base import (
     BaseAdapter,
-    InternalMessage,
     InternalRequest,
     InternalResponse,
     StreamChunk,
@@ -20,9 +18,6 @@ from omlx.api.adapters.base import (
 from omlx.api.anthropic_models import (
     AnthropicMessage,
     AnthropicTool,
-    ContentBlockText,
-    ContentBlockToolResult,
-    ContentBlockToolUse,
     MessagesRequest,
 )
 
@@ -576,8 +571,8 @@ class TestAnthropicToolUseConversion:
 
     def test_tool_use_block_converted_to_calling_tool_format(self):
         """tool_use blocks should be converted to [Calling tool: ...] format, not [Tool call: ...]."""
+        from omlx.api.anthropic_models import AnthropicMessage, MessagesRequest
         from omlx.api.anthropic_utils import convert_anthropic_to_internal
-        from omlx.api.anthropic_models import MessagesRequest, AnthropicMessage
 
         request = MessagesRequest(
             model="test-model",

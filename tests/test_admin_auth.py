@@ -2,15 +2,14 @@
 """Tests for admin authentication and chat page API key injection."""
 
 import asyncio
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
-import omlx.server  # noqa: F401 — ensure server module is imported first
 import omlx.admin.auth as admin_auth
 import omlx.admin.routes as admin_routes
+import omlx.server  # noqa: F401 — ensure server module is imported first
 
 
 def _mock_global_settings(api_key=None):
@@ -113,9 +112,7 @@ class TestAutoLogin:
         try:
             with pytest.raises(HTTPException) as exc_info:
                 asyncio.run(
-                    admin_routes.auto_login(
-                        key="test-key", redirect="https://evil.com"
-                    )
+                    admin_routes.auto_login(key="test-key", redirect="https://evil.com")
                 )
             assert exc_info.value.status_code == 400
             assert "Invalid redirect path" in exc_info.value.detail
@@ -183,9 +180,7 @@ class TestChatPageApiKeyInjection:
             mock_request = MagicMock()
             with patch.object(admin_routes, "templates") as mock_templates:
                 mock_templates.TemplateResponse.return_value = MagicMock()
-                asyncio.run(
-                    admin_routes.chat_page(request=mock_request, is_admin=True)
-                )
+                asyncio.run(admin_routes.chat_page(request=mock_request, is_admin=True))
                 mock_templates.TemplateResponse.assert_called_once_with(
                     mock_request,
                     "chat.html",
@@ -202,9 +197,7 @@ class TestChatPageApiKeyInjection:
             mock_request = MagicMock()
             with patch.object(admin_routes, "templates") as mock_templates:
                 mock_templates.TemplateResponse.return_value = MagicMock()
-                asyncio.run(
-                    admin_routes.chat_page(request=mock_request, is_admin=True)
-                )
+                asyncio.run(admin_routes.chat_page(request=mock_request, is_admin=True))
                 call_args = mock_templates.TemplateResponse.call_args
                 context = call_args[0][2]
                 assert context["api_key"] == ""
@@ -219,9 +212,7 @@ class TestChatPageApiKeyInjection:
             mock_request = MagicMock()
             with patch.object(admin_routes, "templates") as mock_templates:
                 mock_templates.TemplateResponse.return_value = MagicMock()
-                asyncio.run(
-                    admin_routes.chat_page(request=mock_request, is_admin=True)
-                )
+                asyncio.run(admin_routes.chat_page(request=mock_request, is_admin=True))
                 call_args = mock_templates.TemplateResponse.call_args
                 context = call_args[0][2]
                 assert context["api_key"] == ""
@@ -444,10 +435,12 @@ class TestCheckUpdate:
         """Dev/pre-release GitHub releases should not trigger update notification."""
         fake_resp = _FakeResponse(
             200,
-            [{
-                "tag_name": "v99.0.0.dev1",
-                "html_url": "https://github.com/jundot/omlx/releases/tag/v99.0.0.dev1",
-            }],
+            [
+                {
+                    "tag_name": "v99.0.0.dev1",
+                    "html_url": "https://github.com/jundot/omlx/releases/tag/v99.0.0.dev1",
+                }
+            ],
         )
         with patch("omlx.admin.routes.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = _make_async_return(fake_resp)
@@ -461,10 +454,12 @@ class TestCheckUpdate:
         """Stable GitHub releases should trigger update notification."""
         fake_resp = _FakeResponse(
             200,
-            [{
-                "tag_name": "v99.0.0",
-                "html_url": "https://github.com/jundot/omlx/releases/tag/v99.0.0",
-            }],
+            [
+                {
+                    "tag_name": "v99.0.0",
+                    "html_url": "https://github.com/jundot/omlx/releases/tag/v99.0.0",
+                }
+            ],
         )
         with patch("omlx.admin.routes.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = _make_async_return(fake_resp)
@@ -478,10 +473,12 @@ class TestCheckUpdate:
         """RC releases should not trigger update notification."""
         fake_resp = _FakeResponse(
             200,
-            [{
-                "tag_name": "v99.0.0rc1",
-                "html_url": "https://github.com/jundot/omlx/releases/tag/v99.0.0rc1",
-            }],
+            [
+                {
+                    "tag_name": "v99.0.0rc1",
+                    "html_url": "https://github.com/jundot/omlx/releases/tag/v99.0.0rc1",
+                }
+            ],
         )
         with patch("omlx.admin.routes.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = _make_async_return(fake_resp)

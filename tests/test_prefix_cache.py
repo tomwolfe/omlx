@@ -7,16 +7,12 @@ PagedCacheManager for block-based storage with SSD persistence.
 """
 
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from omlx.cache.paged_cache import (
-    BlockHash,
     BlockTable,
-    CacheBlock,
     PagedCacheManager,
     compute_block_hash,
 )
@@ -98,7 +94,7 @@ class TestBlockAwarePrefixCache:
         model2 = MagicMock()
         model2.layers = None
         model2.args.num_hidden_layers = 24
-        delattr(model2, 'layers')
+        delattr(model2, "layers")
         cache2 = BlockAwarePrefixCache(model2, paged_cache)
         assert cache2.expected_num_layers == 24
 
@@ -493,9 +489,7 @@ class TestPrefixIndexOperations:
         block_ids = [1, 2]
 
         # Manually add to prefix index
-        block_hash = compute_block_hash(
-            b"", tokens, model_name=paged_cache.model_name
-        )
+        block_hash = compute_block_hash(b"", tokens, model_name=paged_cache.model_name)
         prefix_cache._prefix_index[block_hash] = (4, block_ids, 1)
 
         result = prefix_cache._find_best_prefix_match(tokens)
@@ -579,9 +573,7 @@ class TestValidateBlockCacheData:
         layer_cache_types = ["KVCache", "ArraysCache"]
 
         # Should pass because ArraysCache is skipped in validation
-        result = prefix_cache._validate_block_cache_data(
-            cache_data, layer_cache_types
-        )
+        result = prefix_cache._validate_block_cache_data(cache_data, layer_cache_types)
         assert result is True
 
     def test_validate_seq_len_mismatch(self, prefix_cache):
@@ -600,9 +592,7 @@ class TestValidateBlockCacheData:
         ]
         layer_cache_types = ["KVCache", "KVCache"]
 
-        result = prefix_cache._validate_block_cache_data(
-            cache_data, layer_cache_types
-        )
+        result = prefix_cache._validate_block_cache_data(cache_data, layer_cache_types)
         assert result is False
 
 
@@ -614,6 +604,7 @@ class TestArraysCacheLastBlockOnly:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -652,7 +643,11 @@ class TestArraysCacheLastBlockOnly:
         ]
 
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 0, 4, model_cache_config=None, is_last_block=True,
+            cache_data,
+            0,
+            4,
+            model_cache_config=None,
+            is_last_block=True,
         )
 
         assert result is not None
@@ -677,7 +672,11 @@ class TestArraysCacheLastBlockOnly:
         ]
 
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 0, 4, model_cache_config=None, is_last_block=False,
+            cache_data,
+            0,
+            4,
+            model_cache_config=None,
+            is_last_block=False,
         )
 
         assert result is not None
@@ -717,7 +716,11 @@ class TestArraysCacheLastBlockOnly:
 
         # Non-last block
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 0, 4, model_cache_config=config, is_last_block=False,
+            cache_data,
+            0,
+            4,
+            model_cache_config=config,
+            is_last_block=False,
         )
         assert result is not None
         assert len(result) == 2
@@ -728,7 +731,11 @@ class TestArraysCacheLastBlockOnly:
 
         # Last block
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 4, 8, model_cache_config=config, is_last_block=True,
+            cache_data,
+            4,
+            8,
+            model_cache_config=config,
+            is_last_block=True,
         )
         assert result is not None
         assert len(result) == 2
@@ -748,7 +755,9 @@ class TestArraysCacheLastBlockOnly:
 
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -776,21 +785,30 @@ class TestArraysCacheLastBlockOnly:
         placeholder = (mx.zeros((1,)), mx.zeros((1,)))
 
         block1_data = [kv_slice, placeholder]  # ArraysCache = placeholder (non-last)
-        block2_data = [kv_slice, placeholder]  # ArraysCache = placeholder (still non-last in original)
+        block2_data = [
+            kv_slice,
+            placeholder,
+        ]  # ArraysCache = placeholder (still non-last in original)
 
         mock_ssd.load_block_with_metadata.side_effect = [
-            (block1_data, {
-                "model_name": "test-model",
-                "num_layers": 2,
-                "layer_cache_types": ["KVCache", "ArraysCache"],
-                "layer_meta_states": [(), ()],
-            }),
-            (block2_data, {
-                "model_name": "test-model",
-                "num_layers": 2,
-                "layer_cache_types": ["KVCache", "ArraysCache"],
-                "layer_meta_states": [(), ()],
-            }),
+            (
+                block1_data,
+                {
+                    "model_name": "test-model",
+                    "num_layers": 2,
+                    "layer_cache_types": ["KVCache", "ArraysCache"],
+                    "layer_meta_states": [(), ()],
+                },
+            ),
+            (
+                block2_data,
+                {
+                    "model_name": "test-model",
+                    "num_layers": 2,
+                    "layer_cache_types": ["KVCache", "ArraysCache"],
+                    "layer_meta_states": [(), ()],
+                },
+            ),
         ]
 
         result = cache.reconstruct_cache(block_table)
@@ -798,9 +816,7 @@ class TestArraysCacheLastBlockOnly:
         # Should return None because ArraysCache layer has placeholder
         assert result is None
 
-    def test_reconstruct_arrays_cache_exact_match_succeeds(
-        self, prefix_cache, mx
-    ):
+    def test_reconstruct_arrays_cache_exact_match_succeeds(self, prefix_cache, mx):
         """Exact match (full state in last block) should reconstruct successfully."""
         from omlx.cache.paged_ssd_cache import PagedSSDCacheManager
 
@@ -808,7 +824,9 @@ class TestArraysCacheLastBlockOnly:
 
         model = MockModel(num_layers=1)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -838,18 +856,24 @@ class TestArraysCacheLastBlockOnly:
         block2_data = [(conv_state, ssm_state)]  # full state
 
         mock_ssd.load_block_with_metadata.side_effect = [
-            (block1_data, {
-                "model_name": "test-model",
-                "num_layers": 1,
-                "layer_cache_types": ["ArraysCache"],
-                "layer_meta_states": [()],
-            }),
-            (block2_data, {
-                "model_name": "test-model",
-                "num_layers": 1,
-                "layer_cache_types": ["ArraysCache"],
-                "layer_meta_states": [()],
-            }),
+            (
+                block1_data,
+                {
+                    "model_name": "test-model",
+                    "num_layers": 1,
+                    "layer_cache_types": ["ArraysCache"],
+                    "layer_meta_states": [()],
+                },
+            ),
+            (
+                block2_data,
+                {
+                    "model_name": "test-model",
+                    "num_layers": 1,
+                    "layer_cache_types": ["ArraysCache"],
+                    "layer_meta_states": [()],
+                },
+            ),
         ]
 
         result = cache.reconstruct_cache(block_table)
@@ -882,8 +906,11 @@ class TestArraysCacheLastBlockOnly:
         # 10 tokens = 2 full blocks (8 tokens) + 2 partial tokens
         tokens = list(range(10))
         cache_data = [
-            {"state": (mx.ones((1, 8, 10, 64)), mx.ones((1, 8, 10, 64))),
-             "cache_type": "KVCache", "class_name": "KVCache"}
+            {
+                "state": (mx.ones((1, 8, 10, 64)), mx.ones((1, 8, 10, 64))),
+                "cache_type": "KVCache",
+                "class_name": "KVCache",
+            }
         ]
 
         result = cache.store_cache("req-001", tokens, cache_data)
@@ -900,7 +927,9 @@ class TestArraysCacheLastBlockOnly:
         assert stats.last_partial_tokens_skipped == 2
         assert stats.last_tokens_to_next_block == 2
 
-    def test_store_cache_arrayscache_partial_trailing_uses_last_full_block_state(self, mx):
+    def test_store_cache_arrayscache_partial_trailing_uses_last_full_block_state(
+        self, mx
+    ):
         """ArraysCache with trailing partial tokens stores only full blocks safely."""
         from omlx.cache.hybrid_cache import ModelCacheConfig
 
@@ -971,8 +1000,11 @@ class TestArraysCacheLastBlockOnly:
         # 3 tokens < block_size=4 -> 0 full blocks
         tokens = [1, 2, 3]
         cache_data = [
-            {"state": (mx.ones((1, 8, 3, 64)), mx.ones((1, 8, 3, 64))),
-             "cache_type": "KVCache", "class_name": "KVCache"}
+            {
+                "state": (mx.ones((1, 8, 3, 64)), mx.ones((1, 8, 3, 64))),
+                "cache_type": "KVCache",
+                "class_name": "KVCache",
+            }
         ]
 
         result = cache.store_cache("req-001", tokens, cache_data)
@@ -1005,8 +1037,11 @@ class TestArraysCacheLastBlockOnly:
         # 8 tokens = exactly 2 blocks
         tokens = list(range(8))
         cache_data = [
-            {"state": (mx.ones((1, 8, 8, 64)), mx.ones((1, 8, 8, 64))),
-             "cache_type": "KVCache", "class_name": "KVCache"}
+            {
+                "state": (mx.ones((1, 8, 8, 64)), mx.ones((1, 8, 8, 64))),
+                "cache_type": "KVCache",
+                "class_name": "KVCache",
+            }
         ]
 
         result = cache.store_cache("req-001", tokens, cache_data)
@@ -1066,13 +1101,15 @@ class TestArraysCacheLastBlockOnly:
         assert changed_later_image_table.num_tokens == 8
         assert changed_later_image_remaining == tokens[8:]
 
-        changed_earlier_image_table, changed_earlier_image_remaining = cache.fetch_cache(
-            "req-earlier-image",
-            tokens,
-            extra_key_ranges=[
-                (5, ("image-x",)),
-                (9, ("image-x", "image-2")),
-            ],
+        changed_earlier_image_table, changed_earlier_image_remaining = (
+            cache.fetch_cache(
+                "req-earlier-image",
+                tokens,
+                extra_key_ranges=[
+                    (5, ("image-x",)),
+                    (9, ("image-x", "image-2")),
+                ],
+            )
         )
         assert changed_earlier_image_table is not None
         assert changed_earlier_image_table.num_tokens == 4
@@ -1107,7 +1144,9 @@ class TestArraysCacheLastBlockOnly:
         block_table = paged_cache.create_block_table("req-001")
         existing_block = paged_cache.allocate_block()
         assert existing_block is not None
-        existing_hash = compute_block_hash(None, existing_tokens, model_name="test-model")
+        existing_hash = compute_block_hash(
+            None, existing_tokens, model_name="test-model"
+        )
         existing_block.block_hash = existing_hash
         existing_block.token_count = block_size
         block_table.block_ids.append(existing_block.block_id)
@@ -1220,14 +1259,18 @@ class TestArraysCacheLastBlockOnly:
         first_new_hash = compute_block_hash(
             existing_block.block_hash, tokens[4:8], model_name="test-model"
         )
-        failed_hash = compute_block_hash(first_new_hash, tokens[8:12], model_name="test-model")
+        failed_hash = compute_block_hash(
+            first_new_hash, tokens[8:12], model_name="test-model"
+        )
 
         # Keep existing block + first new block; drop only the failed second new block.
         assert len(result.block_ids) == 2
         assert result.num_tokens == 8
         assert result.block_ids[0] == existing_block.block_id
 
-        first_new_block = paged_cache.cached_block_hash_to_block.get_block(first_new_hash)
+        first_new_block = paged_cache.cached_block_hash_to_block.get_block(
+            first_new_hash
+        )
         assert first_new_block is not None
         assert result.block_ids[1] == first_new_block.block_id
         assert result.block_ids == [existing_block.block_id, first_new_block.block_id]
@@ -1237,7 +1280,10 @@ class TestArraysCacheLastBlockOnly:
         assert len(calls) == 2
         attempted_hashes = [call.kwargs["block_hash"] for call in calls]
         assert attempted_hashes == [first_new_hash, failed_hash]
-        assert [call.kwargs["token_count"] for call in calls] == [block_size, block_size]
+        assert [call.kwargs["token_count"] for call in calls] == [
+            block_size,
+            block_size,
+        ]
 
         # Verify global-index slices were persisted for both attempted new blocks.
         first_saved_keys, first_saved_values = calls[0].kwargs["cache_data"][0]
@@ -1247,7 +1293,9 @@ class TestArraysCacheLastBlockOnly:
         assert failed_saved_keys.tolist() == keys[:, :, 8:12, :].tolist()
         assert failed_saved_values.tolist() == values[:, :, 8:12, :].tolist()
 
-        assert paged_cache.cached_block_hash_to_block.get_block(first_new_hash) is not None
+        assert (
+            paged_cache.cached_block_hash_to_block.get_block(first_new_hash) is not None
+        )
         assert paged_cache.cached_block_hash_to_block.get_block(failed_hash) is None
         # Failed block should be freed, not just removed from hash index.
         allocated_non_null_ids = {
@@ -1255,7 +1303,10 @@ class TestArraysCacheLastBlockOnly:
             for block in paged_cache.allocated_blocks.values()
             if not block.is_null
         }
-        assert allocated_non_null_ids == {existing_block.block_id, first_new_block.block_id}
+        assert allocated_non_null_ids == {
+            existing_block.block_id,
+            first_new_block.block_id,
+        }
         assert all(
             b.block_hash != failed_hash for b in paged_cache.allocated_blocks.values()
         )
@@ -1312,11 +1363,18 @@ class TestArraysCacheLastBlockOnly:
         first_new_hash = compute_block_hash(
             existing_block.block_hash, tokens[4:8], model_name="test-model"
         )
-        tail_hash = compute_block_hash(first_new_hash, tokens[8:12], model_name="test-model")
-        first_new_block = paged_cache.cached_block_hash_to_block.get_block(first_new_hash)
+        tail_hash = compute_block_hash(
+            first_new_hash, tokens[8:12], model_name="test-model"
+        )
+        first_new_block = paged_cache.cached_block_hash_to_block.get_block(
+            first_new_hash
+        )
         assert first_new_block is not None
         retained_prefix_ids = first_result.block_ids.copy()
-        assert retained_prefix_ids == [existing_block.block_id, first_new_block.block_id]
+        assert retained_prefix_ids == [
+            existing_block.block_id,
+            first_new_block.block_id,
+        ]
 
         retry_result = cache.store_cache("req-retry", tokens, cache_data)
         assert retry_result is not None
@@ -1327,7 +1385,11 @@ class TestArraysCacheLastBlockOnly:
         assert attempted_hashes == [first_new_hash, tail_hash, tail_hash]
         assert attempted_hashes.count(first_new_hash) == 1
         assert attempted_hashes.count(tail_hash) == 2
-        assert [call.kwargs["token_count"] for call in calls] == [block_size, block_size, block_size]
+        assert [call.kwargs["token_count"] for call in calls] == [
+            block_size,
+            block_size,
+            block_size,
+        ]
         retry_saved_keys, retry_saved_values = calls[2].kwargs["cache_data"][0]
         assert retry_saved_keys.tolist() == keys[:, :, 8:12, :].tolist()
         assert retry_saved_values.tolist() == values[:, :, 8:12, :].tolist()
@@ -1374,7 +1436,10 @@ class TestArraysCacheLastBlockOnly:
         elif isinstance(layer_cache, (list, tuple)) and len(layer_cache) == 2:
             reconstructed_keys, reconstructed_values = layer_cache
         else:
-            reconstructed_keys, reconstructed_values = layer_cache.keys, layer_cache.values
+            reconstructed_keys, reconstructed_values = (
+                layer_cache.keys,
+                layer_cache.values,
+            )
 
         assert reconstructed_keys.tolist() == keys.tolist()
         assert reconstructed_values.tolist() == values.tolist()
@@ -1393,7 +1458,9 @@ class TestArraysCacheLastBlockOnly:
 
         expected_ids = retry_result.block_ids.copy()
         # Public contract via prefix-index fallback: full prefix hit, no remaining tokens.
-        fetched_table, remaining = cache.fetch_cache("req-retry-prefix-index-hit", tokens)
+        fetched_table, remaining = cache.fetch_cache(
+            "req-retry-prefix-index-hit", tokens
+        )
         assert fetched_table is not None
         assert fetched_table.block_ids == expected_ids
         assert fetched_table.num_tokens == 12
@@ -1408,6 +1475,7 @@ class TestPrefixCacheCacheList:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -1444,14 +1512,14 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': [(sub_keys, sub_values)],  # CacheList sub-states
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys, sub_values)],  # CacheList sub-states
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
             {
-                'state': [(sub_keys, sub_values)],
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys, sub_values)],
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
         ]
 
@@ -1466,14 +1534,14 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': (kv_keys, kv_values),
-                'cache_type': 'KVCache',
-                'class_name': 'KVCache',
+                "state": (kv_keys, kv_values),
+                "cache_type": "KVCache",
+                "class_name": "KVCache",
             },
             {
-                'state': [(sub_keys, MagicMock())],
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys, MagicMock())],
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
         ]
 
@@ -1487,9 +1555,9 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': [(sub_keys, MagicMock())],
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys, MagicMock())],
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
         ]
 
@@ -1505,9 +1573,9 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': (rot_keys, rot_values),
-                'cache_type': 'RotatingKVCache',
-                'class_name': 'RotatingKVCache',
+                "state": (rot_keys, rot_values),
+                "cache_type": "RotatingKVCache",
+                "class_name": "RotatingKVCache",
             },
         ]
 
@@ -1524,25 +1592,31 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': [(sub_keys, sub_values)],
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys, sub_values)],
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
         ]
         config = ModelCacheConfig.from_type_list(["CacheList"])
 
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 0, 32, model_cache_config=config, is_last_block=True,
+            cache_data,
+            0,
+            32,
+            model_cache_config=config,
+            is_last_block=True,
         )
 
         assert result is not None
         assert len(result) == 1
         # CacheList marker format
-        assert result[0][0] == '__cache_list__'
+        assert result[0][0] == "__cache_list__"
         assert len(result[0][1]) == 1  # One sub-cache
         assert result[0][1][0][0].shape == (1, 8, 32, 64)
 
-    def test_extract_block_tensor_slice_cache_list_non_last_sliceable(self, prefix_cache, mx):
+    def test_extract_block_tensor_slice_cache_list_non_last_sliceable(
+        self, prefix_cache, mx
+    ):
         """Test _extract_block_tensor_slice for CacheList with sliceable sub-caches on non-last block.
 
         When all sub-caches are 4D KVCache tensors, they should be sliced
@@ -1555,26 +1629,32 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': [(sub_keys, sub_values)],
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys, sub_values)],
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
         ]
         config = ModelCacheConfig.from_type_list(["CacheList"])
 
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 0, 16, model_cache_config=config, is_last_block=False,
+            cache_data,
+            0,
+            16,
+            model_cache_config=config,
+            is_last_block=False,
         )
 
         assert result is not None
         assert len(result) == 1
         # Sliceable sub-caches: per-block sliced data, not placeholder
-        assert result[0][0] == '__cache_list__'
+        assert result[0][0] == "__cache_list__"
         assert len(result[0][1]) == 1
         assert result[0][1][0][0].shape == (1, 8, 16, 64)
         assert result[0][1][0][1].shape == (1, 8, 16, 64)
 
-    def test_extract_block_tensor_slice_cache_list_zero_dim_values(self, prefix_cache, mx):
+    def test_extract_block_tensor_slice_cache_list_zero_dim_values(
+        self, prefix_cache, mx
+    ):
         """Test per-block slicing for CacheList with zero-dim values (DSA indexer)."""
         from omlx.cache.hybrid_cache import ModelCacheConfig
 
@@ -1586,19 +1666,23 @@ class TestPrefixCacheCacheList:
 
         cache_data = [
             {
-                'state': [(sub_keys1, sub_values1), (sub_keys2, sub_values2)],
-                'cache_type': 'CacheList',
-                'class_name': 'CacheList',
+                "state": [(sub_keys1, sub_values1), (sub_keys2, sub_values2)],
+                "cache_type": "CacheList",
+                "class_name": "CacheList",
             },
         ]
         config = ModelCacheConfig.from_type_list(["CacheList"])
 
         result = prefix_cache._extract_block_tensor_slice(
-            cache_data, 0, 32, model_cache_config=config, is_last_block=False,
+            cache_data,
+            0,
+            32,
+            model_cache_config=config,
+            is_last_block=False,
         )
 
         assert result is not None
-        assert result[0][0] == '__cache_list__'
+        assert result[0][0] == "__cache_list__"
         assert len(result[0][1]) == 2
         # Sub-cache 0: sliced normally
         assert result[0][1][0][0].shape == (1, 1, 32, 512)
@@ -1611,7 +1695,9 @@ class TestPrefixCacheCacheList:
         """Test _validate_block_cache_data with CacheList layers."""
         # CacheList as list format (last block)
         cache_data = [
-            [(mx.zeros((1, 8, 32, 64)), mx.zeros((1, 8, 32, 64)))],  # CacheList sub-cache list
+            [
+                (mx.zeros((1, 8, 32, 64)), mx.zeros((1, 8, 32, 64)))
+            ],  # CacheList sub-cache list
             (mx.zeros((1, 8, 32, 64)), mx.zeros((1, 8, 32, 64))),  # Standard KVCache
         ]
         layer_cache_types = ["CacheList", "KVCache"]
@@ -1622,7 +1708,10 @@ class TestPrefixCacheCacheList:
     def test_validate_block_cache_data_cache_list_placeholder(self, prefix_cache, mx):
         """Test _validate_block_cache_data with CacheList placeholder."""
         cache_data = [
-            (mx.zeros((1,)), mx.zeros((1,))),  # CacheList placeholder (falls through to tuple check)
+            (
+                mx.zeros((1,)),
+                mx.zeros((1,)),
+            ),  # CacheList placeholder (falls through to tuple check)
             (mx.zeros((1, 8, 32, 64)), mx.zeros((1, 8, 32, 64))),  # Standard KVCache
         ]
         layer_cache_types = ["CacheList", "KVCache"]
@@ -1634,7 +1723,9 @@ class TestPrefixCacheCacheList:
         """Test _find_kv_shape_ref skips CacheList layers."""
         all_block_data = [
             [
-                [(mx.zeros((1, 8, 32, 64)), mx.zeros((1, 8, 32, 64)))],  # CacheList: List[Tuple]
+                [
+                    (mx.zeros((1, 8, 32, 64)), mx.zeros((1, 8, 32, 64)))
+                ],  # CacheList: List[Tuple]
                 (mx.zeros((1, 4, 32, 128)), mx.zeros((1, 4, 32, 128))),  # KVCache
             ]
         ]
@@ -1651,7 +1742,9 @@ class TestPrefixCacheCacheList:
 
         model = MockModel(num_layers=1)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1698,6 +1791,7 @@ class TestWalkBackTruncation:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -1736,7 +1830,9 @@ class TestWalkBackTruncation:
         """No truncation when the last block has real state."""
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1751,7 +1847,7 @@ class TestWalkBackTruncation:
 
         all_block_data = [
             [kv, placeholder],  # block 0
-            [kv, real_state],   # block 1 (last, valid)
+            [kv, real_state],  # block 1 (last, valid)
         ]
         layer_cache_types = ["KVCache", "ArraysCache"]
 
@@ -1769,7 +1865,9 @@ class TestWalkBackTruncation:
         """
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1786,9 +1884,9 @@ class TestWalkBackTruncation:
         all_block_data = [
             [kv, placeholder],  # A
             [kv, placeholder],  # B
-            [kv, real_state],   # C (turn 1 last block)
+            [kv, real_state],  # C (turn 1 last block)
             [kv, placeholder],  # D
-            [kv, real_state],   # E (turn 2 last block)
+            [kv, real_state],  # E (turn 2 last block)
             [kv, placeholder],  # F (last loaded, placeholder)
         ]
         layer_cache_types = ["KVCache", "ArraysCache"]
@@ -1802,7 +1900,9 @@ class TestWalkBackTruncation:
         """All blocks have placeholders -- no valid fallback exists."""
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1830,7 +1930,9 @@ class TestWalkBackTruncation:
         """RotatingKVCache placeholders should walk back to latest valid block."""
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1871,7 +1973,9 @@ class TestWalkBackTruncation:
 
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1909,9 +2013,9 @@ class TestWalkBackTruncation:
         }
 
         mock_ssd.load_block_with_metadata.side_effect = [
-            ([kv_slice, placeholder], metadata),   # block 0: placeholder
-            ([kv_slice, real_state], metadata),     # block 1: real state (turn 1 last)
-            ([kv_slice, placeholder], metadata),    # block 2: placeholder
+            ([kv_slice, placeholder], metadata),  # block 0: placeholder
+            ([kv_slice, real_state], metadata),  # block 1: real state (turn 1 last)
+            ([kv_slice, placeholder], metadata),  # block 2: placeholder
         ]
 
         result = cache.reconstruct_cache(block_table)
@@ -1935,7 +2039,9 @@ class TestWalkBackTruncation:
 
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -1971,9 +2077,9 @@ class TestWalkBackTruncation:
         }
 
         mock_ssd.load_block_with_metadata.side_effect = [
-            ([kv_slice, placeholder], metadata),     # block 0: placeholder
-            ([kv_slice, rotating_real], metadata),   # block 1: real rotating state
-            ([kv_slice, placeholder], metadata),     # block 2: placeholder
+            ([kv_slice, placeholder], metadata),  # block 0: placeholder
+            ([kv_slice, rotating_real], metadata),  # block 1: real rotating state
+            ([kv_slice, placeholder], metadata),  # block 2: placeholder
         ]
 
         result = cache.reconstruct_cache(block_table)
@@ -1998,7 +2104,9 @@ class TestWalkBackTruncation:
 
         model = MockModel(num_layers=2)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -2049,7 +2157,9 @@ class TestWalkBackTruncation:
 
         model = MockModel(num_layers=1)
         paged_cache = PagedCacheManager(
-            block_size=4, max_blocks=100, model_name="test-model",
+            block_size=4,
+            max_blocks=100,
+            model_name="test-model",
             initial_blocks=100,
         )
         cache = BlockAwarePrefixCache(
@@ -2078,12 +2188,15 @@ class TestWalkBackTruncation:
 
         # First block loads fine, second fails
         mock_ssd.load_block_with_metadata.side_effect = [
-            ([kv_slice], {
-                "model_name": "test-model",
-                "num_layers": 1,
-                "layer_cache_types": ["KVCache"],
-                "layer_meta_states": [()],
-            }),
+            (
+                [kv_slice],
+                {
+                    "model_name": "test-model",
+                    "num_layers": 1,
+                    "layer_cache_types": ["KVCache"],
+                    "layer_meta_states": [()],
+                },
+            ),
             (None, None),  # Second block fails to load
         ]
 
@@ -2111,6 +2224,7 @@ class TestPerBlockMetaStates:
         """Import MLX or skip."""
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -2152,7 +2266,12 @@ class TestPerBlockMetaStates:
                 "state": (mx.ones((1, 1, 4, 256)), mx.ones((1, 1, 4, 256))),
                 "cache_type": "RotatingKVCache",
                 "class_name": "RotatingKVCache",
-                "meta_state": ("0", "4", "8", "4"),  # keep, max_size, offset=8 (final), _idx
+                "meta_state": (
+                    "0",
+                    "4",
+                    "8",
+                    "4",
+                ),  # keep, max_size, offset=8 (final), _idx
             },
         ]
         model_cache_config = ModelCacheConfig.from_type_list(

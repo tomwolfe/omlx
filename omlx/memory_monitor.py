@@ -16,12 +16,12 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from omlx.cache.paged_cache import PagedCacheManager
 
-from omlx.utils.hardware import get_max_working_set_bytes, format_bytes
+from omlx.utils.hardware import format_bytes, get_max_working_set_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -89,19 +89,19 @@ class MemoryMonitor:
         self._max_memory = self._get_max_memory()
 
         self._last_check_time = 0.0
-        self._last_memory_info: Optional[MemoryInfo] = None
+        self._last_memory_info: MemoryInfo | None = None
         self._lock = threading.Lock()
 
         # Model info for memory estimation (set by scheduler)
-        self._num_layers: Optional[int] = None
-        self._num_kv_heads: Optional[int] = None
-        self._head_dim: Optional[int] = None
+        self._num_layers: int | None = None
+        self._num_kv_heads: int | None = None
+        self._head_dim: int | None = None
         self._dtype_size: int = 2  # Default float16
-        self._num_attention_heads: Optional[int] = None
-        self._num_kv_cache_layers: Optional[int] = None
+        self._num_attention_heads: int | None = None
+        self._num_kv_cache_layers: int | None = None
 
         # PagedCacheManager for KV cache memory measurement
-        self._paged_cache_manager: Optional["PagedCacheManager"] = None
+        self._paged_cache_manager: PagedCacheManager | None = None
         self._block_size: int = 256  # Default block size
 
         # Baseline memory (model weights) - set after model load
@@ -127,7 +127,7 @@ class MemoryMonitor:
         return get_max_working_set_bytes()
 
     def set_paged_cache_manager(
-        self, manager: "PagedCacheManager", block_size: int = 64
+        self, manager: PagedCacheManager, block_size: int = 64
     ) -> None:
         """
         Set PagedCacheManager for memory monitoring.
@@ -269,8 +269,8 @@ class MemoryMonitor:
         num_kv_heads: int,
         head_dim: int,
         dtype_size: int = 2,
-        num_attention_heads: Optional[int] = None,
-        num_kv_cache_layers: Optional[int] = None,
+        num_attention_heads: int | None = None,
+        num_kv_cache_layers: int | None = None,
     ) -> None:
         """
         Set model information for memory estimation.
@@ -308,10 +308,10 @@ class MemoryMonitor:
     def estimate_block_memory(
         self,
         block_size: int,
-        num_layers: Optional[int] = None,
-        num_kv_heads: Optional[int] = None,
-        head_dim: Optional[int] = None,
-        dtype_size: Optional[int] = None,
+        num_layers: int | None = None,
+        num_kv_heads: int | None = None,
+        head_dim: int | None = None,
+        dtype_size: int | None = None,
     ) -> int:
         """
         Estimate memory usage for a KV cache block.

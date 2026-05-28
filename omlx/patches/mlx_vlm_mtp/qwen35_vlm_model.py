@@ -74,9 +74,7 @@ def apply() -> bool:
         for key, value in weights.items():
             if "model" in key:
                 if "model.language_model" in key:
-                    key = key.replace(
-                        "model.language_model", "language_model.model"
-                    )
+                    key = key.replace("model.language_model", "language_model.model")
                 elif "model.visual" in key:
                     key = key.replace("model.visual", "vision_tower")
             elif "lm_head" in key:
@@ -91,15 +89,14 @@ def apply() -> bool:
                 key = "language_model." + key
 
             if key.startswith("language_model.model.visual."):
-                key = "vision_tower." + key[len("language_model.model.visual."):]
+                key = "vision_tower." + key[len("language_model.model.visual.") :]
 
             if "conv1d.weight" in key and value.shape[-1] != 1:
                 value = value.moveaxis(2, 1)
             if should_shift_norm_weights and any(
                 key.endswith(sfx) for sfx in norm_keys
-            ):
-                if value.ndim == 1:
-                    value = value + 1.0
+            ) and value.ndim == 1:
+                value = value + 1.0
 
             sanitized_weights[key] = value
 

@@ -3,13 +3,11 @@
 
 import time
 
-import pytest
-
 from omlx.request import (
-    RequestStatus,
-    SamplingParams,
     Request,
     RequestOutput,
+    RequestStatus,
+    SamplingParams,
 )
 
 
@@ -342,7 +340,7 @@ class TestRequest:
         )
         assert request != "test-019"
         assert request != 123
-        assert request != None
+        assert request is not None
 
     def test_reasoning_model_fields(self):
         """Test reasoning model support fields."""

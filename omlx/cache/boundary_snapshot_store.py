@@ -185,8 +185,7 @@ class BoundarySnapshotSSDStore:
                 # only" promise was already broken because cleanup
                 # discards the in-memory copy anyway.
                 logger.warning(
-                    "Boundary snapshot write queue full, dropping "
-                    "snapshot %s/%d",
+                    "Boundary snapshot write queue full, dropping snapshot %s/%d",
                     request_id,
                     token_count,
                 )
@@ -347,9 +346,7 @@ class BoundarySnapshotSSDStore:
         # pulled. If it's genuinely stuck (slow disk, dead thread) fall
         # back to the cancelled-counter rescue rather than blocking the
         # caller.
-        acquired = self._writer_busy.acquire(
-            timeout=self._CLEANUP_REQUEST_TIMEOUT_S
-        )
+        acquired = self._writer_busy.acquire(timeout=self._CLEANUP_REQUEST_TIMEOUT_S)
         try:
             # Remove files.
             req_dir = self._snapshot_dir / request_id
@@ -414,9 +411,7 @@ class BoundarySnapshotSSDStore:
                         # If cleanup_all is the LAST call before process
                         # exit without an explicit shutdown(), the writer
                         # thread will only be reaped on daemon teardown.
-                        logger.debug(
-                            "cleanup_all: dropped writer-sentinel on Full"
-                        )
+                        logger.debug("cleanup_all: dropped writer-sentinel on Full")
                     break
             except queue.Empty:
                 break
@@ -429,9 +424,7 @@ class BoundarySnapshotSSDStore:
         # path. After the timeout we proceed anyway: the worst case is
         # an orphaned file in the recreated directory, which next
         # startup's cleanup_all() will clear.
-        acquired = self._writer_busy.acquire(
-            timeout=self._CLEANUP_ALL_TIMEOUT_S
-        )
+        acquired = self._writer_busy.acquire(timeout=self._CLEANUP_ALL_TIMEOUT_S)
         try:
             if not acquired:
                 logger.warning(
@@ -457,9 +450,7 @@ class BoundarySnapshotSSDStore:
                 try:
                     shutil.rmtree(self._snapshot_dir)
                 except Exception as e:
-                    logger.debug(
-                        "Failed to clean up all boundary snapshots: %s", e
-                    )
+                    logger.debug("Failed to clean up all boundary snapshots: %s", e)
             self._snapshot_dir.mkdir(parents=True, exist_ok=True)
         finally:
             if acquired:

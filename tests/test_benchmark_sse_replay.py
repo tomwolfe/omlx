@@ -17,23 +17,25 @@ yield, repeat.
 """
 
 import asyncio
-from typing import Optional
 
 import pytest
 
+from omlx.admin.accuracy_benchmark import (
+    AccuracyBenchmarkRequest,
+    AccuracyBenchmarkRun,
+)
+from omlx.admin.accuracy_benchmark import (
+    _send_event as acc_send_event,
+)
 from omlx.admin.benchmark import (
     BenchmarkRequest,
     BenchmarkRun,
     _benchmark_runs,
-    _send_event as bench_send_event,
     get_active_run,
 )
-from omlx.admin.accuracy_benchmark import (
-    AccuracyBenchmarkRequest,
-    AccuracyBenchmarkRun,
-    _send_event as acc_send_event,
+from omlx.admin.benchmark import (
+    _send_event as bench_send_event,
 )
-
 
 # --- Test helpers -----------------------------------------------------------
 
@@ -41,7 +43,7 @@ from omlx.admin.accuracy_benchmark import (
 async def _drain(
     run,
     *,
-    max_events: Optional[int] = None,
+    max_events: int | None = None,
     timeout: float = 1.0,
 ) -> list[dict]:
     """Read the run's event log replay-then-attach style.
@@ -57,7 +59,7 @@ async def _drain(
             while seen >= len(run.events) and not run.terminal:
                 try:
                     await asyncio.wait_for(run.cond.wait(), timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
             new = list(run.events[seen:])
             seen = len(run.events)
@@ -182,47 +184,75 @@ class TestGetActiveRun:
     registry and returns the first one whose status is "running"."""
 
     @pytest.fixture(autouse=True)
-    def _clear_registry(self):
+    async def _clear_registry(self):
         # Test-level isolation: the module-level _benchmark_runs registry
         # leaks between tests otherwise.
-        _benchmark_runs.clear()
+        await _benchmark_runs.clear()
         yield
-        _benchmark_runs.clear()
+        await _benchmark_runs.clear()
 
-    def test_returns_none_when_no_runs(self):
-        assert get_active_run() is None
-
-    def test_returns_none_when_all_completed(self):
+    @pytest.mark.asyncio
+    async def test_returns_none_when_all_completed(self):
         r = _bench_run()
         r.status = "completed"
-        _benchmark_runs[r.bench_id] = r
-        assert get_active_run() is None
+        await _benchmark_runs.create(r.bench_id, r)
+        assert await get_active_run() is None
 
-    def test_returns_the_running_run(self):
+    @pytest.mark.asyncio
+    async def test_returns_the_running_run(self):
         finished = _bench_run()
         finished.status = "completed"
-        _benchmark_runs[finished.bench_id] = finished
+        await _benchmark_runs.create(finished.bench_id, finished)
 
         running = BenchmarkRun(
             bench_id="b-2",
             request=BenchmarkRequest(model_id="x", prompt_lengths=[1024]),
         )
         running.status = "running"
-        _benchmark_runs[running.bench_id] = running
+        await _benchmark_runs.create(running.bench_id, running)
 
-        found = get_active_run()
+        found = await get_active_run()
         assert found is running
         assert found.status == "running"
 
-    def test_only_returns_running_status_not_cancelled_or_error(self):
+    @pytest.mark.asyncio
+    async def test_only_returns_running_status_not_cancelled_or_error(self):
         for state in ("cancelled", "error"):
             r = BenchmarkRun(
                 bench_id=f"b-{state}",
                 request=BenchmarkRequest(model_id="x", prompt_lengths=[1024]),
             )
             r.status = state
-            _benchmark_runs[r.bench_id] = r
-        assert get_active_run() is None
+            await _benchmark_runs.create(r.bench_id, r)
+        assert await get_active_run() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_the_running_run(self):
+        finished = _bench_run()
+        finished.status = "completed"
+        await _benchmark_runs.create(finished.bench_id, finished)
+
+        running = BenchmarkRun(
+            bench_id="b-2",
+            request=BenchmarkRequest(model_id="x", prompt_lengths=[1024]),
+        )
+        running.status = "running"
+        await _benchmark_runs.create(running.bench_id, running)
+
+        found = await get_active_run()
+        assert found is running
+        assert found.status == "running"
+
+    @pytest.mark.asyncio
+    async def test_only_returns_running_status_not_cancelled_or_error(self):
+        for state in ("cancelled", "error"):
+            r = BenchmarkRun(
+                bench_id=f"b-{state}",
+                request=BenchmarkRequest(model_id="x", prompt_lengths=[1024]),
+            )
+            r.status = state
+            await _benchmark_runs.create(r.bench_id, r)
+        assert await get_active_run() is None
 
 
 # --- AccuracyBenchmarkRun ---------------------------------------------------
@@ -290,14 +320,14 @@ class _FakePool:
 
 
 @pytest.fixture
-def bench_client(monkeypatch):
+async def bench_client(monkeypatch):
     """FastAPI TestClient with auth stubbed and a fake engine pool wired in."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from omlx.admin import routes as admin_routes
 
-    _benchmark_runs.clear()
+    await _benchmark_runs.clear()
     admin_routes._get_engine_pool = lambda: _FakePool()
 
     async def _fake_require_admin():
@@ -307,22 +337,24 @@ def bench_client(monkeypatch):
     app.include_router(admin_routes.router)
     app.dependency_overrides[admin_routes.require_admin] = _fake_require_admin
     yield TestClient(app)
-    _benchmark_runs.clear()
+    await _benchmark_runs.clear()
 
 
 class TestActiveBenchEndpoint:
-    def test_returns_not_running_when_idle(self, bench_client):
+    @pytest.mark.asyncio
+    async def test_returns_not_running_when_idle(self, bench_client):
         r = bench_client.get("/admin/api/bench/active")
         assert r.status_code == 200
         assert r.json() == {"running": False, "bench_id": None, "model_id": None}
 
-    def test_returns_running_run_payload(self, bench_client):
+    @pytest.mark.asyncio
+    async def test_returns_running_run_payload(self, bench_client):
         run = BenchmarkRun(
             bench_id="bench-abc",
             request=BenchmarkRequest(model_id="model-x", prompt_lengths=[1024]),
         )
         run.status = "running"
-        _benchmark_runs[run.bench_id] = run
+        await _benchmark_runs.create(run.bench_id, run)
 
         r = bench_client.get("/admin/api/bench/active")
         assert r.status_code == 200
@@ -338,19 +370,23 @@ class TestConcurrentStartRejection:
     running — two concurrent runs on the same engine produce mutually-
     corrupted measurements, and there's no way to recover the data."""
 
-    def test_start_409_when_already_running(self, bench_client):
+    @pytest.mark.asyncio
+    async def test_start_409_when_already_running(self, bench_client):
         # Seed a running run in the registry.
         existing = BenchmarkRun(
             bench_id="bench-existing",
             request=BenchmarkRequest(model_id="model-x", prompt_lengths=[1024]),
         )
         existing.status = "running"
-        _benchmark_runs[existing.bench_id] = existing
+        await _benchmark_runs.create(existing.bench_id, existing)
 
-        r = bench_client.post("/admin/api/bench/start", json={
-            "model_id": "model-x",
-            "prompt_lengths": [1024],
-        })
+        r = bench_client.post(
+            "/admin/api/bench/start",
+            json={
+                "model_id": "model-x",
+                "prompt_lengths": [1024],
+            },
+        )
         assert r.status_code == 409
         body = r.json()
         assert "already running" in body["detail"].lower()
@@ -359,14 +395,15 @@ class TestConcurrentStartRejection:
         # second one was spuriously created and abandoned.
         assert len(_benchmark_runs) == 1
 
-    def test_start_allowed_when_previous_completed(self, bench_client, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_start_allowed_when_previous_completed(self, bench_client, monkeypatch):
         # A completed prior run must not block a fresh start.
         finished = BenchmarkRun(
             bench_id="bench-finished",
             request=BenchmarkRequest(model_id="model-x", prompt_lengths=[1024]),
         )
         finished.status = "completed"
-        _benchmark_runs[finished.bench_id] = finished
+        await _benchmark_runs.create(finished.bench_id, finished)
 
         # Stub out the async run_benchmark task so the request returns
         # immediately without actually executing a bench.
@@ -377,8 +414,11 @@ class TestConcurrentStartRejection:
 
         monkeypatch.setattr(bench_module, "run_benchmark", _noop)
 
-        r = bench_client.post("/admin/api/bench/start", json={
-            "model_id": "model-x",
-            "prompt_lengths": [1024],
-        })
+        r = bench_client.post(
+            "/admin/api/bench/start",
+            json={
+                "model_id": "model-x",
+                "prompt_lengths": [1024],
+            },
+        )
         assert r.status_code == 200, r.text

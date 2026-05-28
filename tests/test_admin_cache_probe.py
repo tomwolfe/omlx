@@ -8,10 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from omlx.cache.paged_cache import compute_block_hash
-import omlx.server  # noqa: F401 — triggers set_admin_getters
 import omlx.admin.routes as admin_routes
-
+import omlx.server  # noqa: F401 — triggers set_admin_getters
+from omlx.cache.paged_cache import compute_block_hash
 
 # ---------------------------------------------------------------------------
 # Helpers

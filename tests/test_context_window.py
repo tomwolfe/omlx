@@ -36,9 +36,7 @@ class TestGetMaxContextWindow:
 
         state = self._make_server_state(global_max_ctx=32768)
         mock_manager = MagicMock()
-        mock_manager.get_settings.return_value = ModelSettings(
-            max_context_window=4096
-        )
+        mock_manager.get_settings.return_value = ModelSettings(max_context_window=4096)
         state.settings_manager = mock_manager
 
         with patch("omlx.server._server_state", state):
@@ -51,9 +49,7 @@ class TestGetMaxContextWindow:
 
         state = self._make_server_state(global_max_ctx=65536)
         mock_manager = MagicMock()
-        mock_manager.get_settings.return_value = ModelSettings(
-            max_context_window=None
-        )
+        mock_manager.get_settings.return_value = ModelSettings(max_context_window=None)
         state.settings_manager = mock_manager
 
         with patch("omlx.server._server_state", state):
@@ -117,9 +113,7 @@ class TestValidateContextWindow:
 
         state = self._make_server_state(global_max_ctx=32768)
         mock_manager = MagicMock()
-        mock_manager.get_settings.return_value = ModelSettings(
-            max_context_window=100
-        )
+        mock_manager.get_settings.return_value = ModelSettings(max_context_window=100)
         state.settings_manager = mock_manager
 
         with patch("omlx.server._server_state", state):

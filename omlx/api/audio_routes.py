@@ -9,12 +9,13 @@ This module provides OpenAI-compatible audio endpoints:
 """
 
 import base64
+import contextlib
 import logging
 import math
 import os
 import re
 import tempfile
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
@@ -123,7 +124,7 @@ async def _read_upload(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
-def _decode_ref_audio_base64(request: AudioSpeechRequest) -> Optional[bytes]:
+def _decode_ref_audio_base64(request: AudioSpeechRequest) -> bytes | None:
     """Validate and decode optional base64 ref_audio from a TTS request."""
     if request.ref_audio is None:
         return None
@@ -152,7 +153,7 @@ def _decode_ref_audio_base64(request: AudioSpeechRequest) -> Optional[bytes]:
         )
 
 
-def _write_ref_audio_tempfile(audio_bytes: Optional[bytes]) -> Optional[str]:
+def _write_ref_audio_tempfile(audio_bytes: bytes | None) -> str | None:
     """Persist decoded ref audio to a temp file if present."""
     if audio_bytes is None:
         return None
@@ -164,12 +165,10 @@ def _write_ref_audio_tempfile(audio_bytes: Optional[bytes]) -> Optional[str]:
         tmp.close()
 
 
-def _cleanup_tempfile(path: Optional[str]) -> None:
+def _cleanup_tempfile(path: str | None) -> None:
     if path and os.path.exists(path):
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass
 
 
 def _resolve_tts_streaming_interval(request: AudioSpeechRequest) -> float:
@@ -252,7 +251,7 @@ def _split_tts_text(text: str, max_chars: int = 300) -> list[str]:
 async def _stream_speech_response(
     engine,
     request: AudioSpeechRequest,
-    ref_audio_path: Optional[str],
+    ref_audio_path: str | None,
     streaming_interval: float,
 ) -> AsyncIterator[bytes]:
     """Stream sentence-level TTS as a single WAV header plus PCM chunks."""
@@ -264,11 +263,18 @@ async def _stream_speech_response(
         ):
             logger.info(
                 "TTS native streaming start: model=%s, text_len=%d, voice=%s",
-                request.model, len(request.input), request.voice,
+                request.model,
+                len(request.input),
+                request.voice,
             )
-            stream_format: Optional[tuple[int, int, int]] = None
+            stream_format: tuple[int, int, int] | None = None
             try:
-                async for sample_rate, channels, sample_width, pcm_bytes in engine.stream_synthesize_pcm(
+                async for (
+                    sample_rate,
+                    channels,
+                    sample_width,
+                    pcm_bytes,
+                ) in engine.stream_synthesize_pcm(
                     request.input,
                     voice=request.voice,
                     speed=request.speed,
@@ -311,10 +317,13 @@ async def _stream_speech_response(
         segments = _split_tts_text(request.input)
         logger.info(
             "TTS streaming start: model=%s, text_len=%d, segments=%d, voice=%s",
-            request.model, len(request.input), len(segments), request.voice,
+            request.model,
+            len(request.input),
+            len(segments),
+            request.voice,
         )
 
-        stream_format: Optional[tuple[int, int, int]] = None
+        stream_format: tuple[int, int, int] | None = None
         for idx, segment in enumerate(segments, start=1):
             wav_bytes = await engine.synthesize(
                 segment,
@@ -329,11 +338,17 @@ async def _stream_speech_response(
                 repetition_penalty=request.repetition_penalty,
                 max_tokens=request.max_tokens,
             )
-            sample_rate, channels, sample_width, pcm_bytes = wav_bytes_to_pcm_frames(wav_bytes)
+            sample_rate, channels, sample_width, pcm_bytes = wav_bytes_to_pcm_frames(
+                wav_bytes
+            )
             fmt = (sample_rate, channels, sample_width)
             if stream_format is None:
                 stream_format = fmt
-                yield wav_header(sample_rate=sample_rate, channels=channels, sample_width=sample_width)
+                yield wav_header(
+                    sample_rate=sample_rate,
+                    channels=channels,
+                    sample_width=sample_width,
+                )
             elif fmt != stream_format:
                 raise RuntimeError(
                     "Inconsistent WAV format across TTS segments: "
@@ -341,7 +356,10 @@ async def _stream_speech_response(
                 )
             logger.debug(
                 "TTS streaming segment %d/%d: text_len=%d, pcm_bytes=%d",
-                idx, len(segments), len(segment), len(pcm_bytes),
+                idx,
+                len(segments),
+                len(segment),
+                len(pcm_bytes),
             )
             if pcm_bytes:
                 yield pcm_bytes
@@ -373,10 +391,10 @@ async def _stream_with_prefetched_chunk(
 async def create_transcription(
     file: UploadFile = File(...),
     model: str = Form(...),
-    language: Optional[str] = Form(None),
+    language: str | None = Form(None),
     response_format: str = Form("json"),
     temperature: float = Form(0.0),
-    max_tokens: Optional[int] = Form(None),
+    max_tokens: int | None = Form(None),
     word_timestamps: bool = Form(False),
 ):
     """OpenAI-compatible audio transcription endpoint (Speech-to-Text).
@@ -460,10 +478,8 @@ async def create_transcription(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         if tmp_path and os.path.exists(tmp_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
 
     _record_audio_request(resolved_model)
 
@@ -623,10 +639,8 @@ async def process_audio(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         if tmp_path and os.path.exists(tmp_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
 
     _record_audio_request(resolved_model)
 

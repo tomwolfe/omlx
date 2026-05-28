@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for models/vlm.py — VLMModelAdapter for BatchGenerator compatibility."""
 
-from unittest.mock import MagicMock, PropertyMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 # Mock mlx before importing the module
-import sys
 
 
 # Create mock mlx modules
@@ -155,7 +152,7 @@ class TestVLMModelAdapter:
         expected = MagicMock()
         vlm.language_model.__call__ = MagicMock(return_value=expected)
 
-        result = adapter(input_ids, cache=cache)
+        adapter(input_ids, cache=cache)
         vlm.language_model.assert_called_once()
         call_args = vlm.language_model.call_args
         assert call_args[0][0] is input_ids
@@ -239,7 +236,6 @@ class TestVLMModelAdapter:
 
         vlm.get_input_embeddings.assert_called_once_with(input_ids, pixel_values)
         assert result is expected
-
 
     def test_forward_with_inputs_embeds_kwarg(self):
         """Test batched VLM path: inputs_embeds kwarg passed to language_model."""
@@ -361,6 +357,7 @@ class TestPerRequestMRoPEDecode:
     def test_mrope_decode_uses_language_model_with_position_ids(self):
         """mRoPE decode with batch_rope_deltas should use language_model with position_ids."""
         import mlx.core as mx
+
         from omlx.models.vlm import VLMModelAdapter
 
         vlm = self._make_mrope_vlm_model()
@@ -384,6 +381,7 @@ class TestPerRequestMRoPEDecode:
     def test_mrope_always_uses_language_model(self):
         """mRoPE model always uses vlm language_model with position_ids."""
         import mlx.core as mx
+
         from omlx.models.vlm import VLMModelAdapter
 
         vlm = self._make_mrope_vlm_model()
@@ -400,6 +398,7 @@ class TestPerRequestMRoPEDecode:
     def test_position_ids_shape_and_values(self):
         """Verify position_ids = (3, batch, seq) with correct offset+delta values."""
         import mlx.core as mx
+
         from omlx.models.vlm import VLMModelAdapter
 
         vlm = self._make_mrope_vlm_model()
@@ -429,6 +428,7 @@ class TestPerRequestMRoPEDecode:
     def test_get_last_rope_deltas(self):
         """get_last_rope_deltas extracts value from language model."""
         import mlx.core as mx
+
         from omlx.models.vlm import VLMModelAdapter
 
         vlm = self._make_mrope_vlm_model()
@@ -485,6 +485,3 @@ class TestVLMModelAdapterModelProperty:
 
         # BatchGenerator accesses model.layers
         assert adapter.layers is vlm.language_model.model.layers
-
-
-

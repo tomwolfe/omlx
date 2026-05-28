@@ -51,9 +51,10 @@ The patch is intentionally limited to ``mlx_lm.models.qwen3_5``; mlx-vlm's
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
 
 def _is_our_method(cls: Any, attr: str, marker: str) -> bool:
     """True iff ``cls.<attr>`` is the function we previously installed.
@@ -110,6 +111,7 @@ def apply() -> bool:
 # TextModelArgs.from_dict — surface mtp_num_hidden_layers as instance attr.
 # ---------------------------------------------------------------------------
 
+
 def _patch_text_model_args(q35: Any) -> None:
     """Wrap ``TextModelArgs.from_dict`` to retain ``mtp_num_hidden_layers``.
 
@@ -140,6 +142,7 @@ def _patch_text_model_args(q35: Any) -> None:
 # ---------------------------------------------------------------------------
 # MTPDecoderLayer + MTPModule — register on the qwen3_5 module.
 # ---------------------------------------------------------------------------
+
 
 def _register_mtp_classes(q35: Any) -> None:
     """Attach ``MTPDecoderLayer`` / ``MTPModule`` to the qwen3_5 module."""
@@ -225,6 +228,7 @@ def _register_mtp_classes(q35: Any) -> None:
 # GatedDeltaNet — _process_chunk helper + __call__ replacement.
 # ---------------------------------------------------------------------------
 
+
 def _patch_gated_delta_net(q35: Any) -> None:
     """Replace ``GatedDeltaNet.__call__`` with an n_confirmed-aware body.
 
@@ -293,8 +297,8 @@ def _patch_gated_delta_net(q35: Any) -> None:
     def __call__(
         self,
         inputs: Any,
-        mask: Optional[Any] = None,
-        cache: Optional[Any] = None,
+        mask: Any | None = None,
+        cache: Any | None = None,
         n_confirmed: int = 0,
     ):
         B, S, _ = inputs.shape
@@ -369,6 +373,7 @@ def _patch_gated_delta_net(q35: Any) -> None:
 # DecoderLayer — pass n_confirmed to linear attn.
 # ---------------------------------------------------------------------------
 
+
 def _patch_decoder_layer(q35: Any) -> None:
     cls = q35.DecoderLayer
     if _is_our_method(cls, "__call__", "_omlx_mtp_call_marker"):
@@ -400,6 +405,7 @@ def _patch_decoder_layer(q35: Any) -> None:
 # ---------------------------------------------------------------------------
 # Qwen3_5TextModel — return pre-norm hidden, accept n_confirmed.
 # ---------------------------------------------------------------------------
+
 
 def _patch_qwen3_5_text_model(q35: Any) -> None:
     cls = q35.Qwen3_5TextModel
@@ -446,6 +452,7 @@ def _patch_qwen3_5_text_model(q35: Any) -> None:
 # TextModel — wrap __init__, replace __call__, add mtp_forward / make_mtp_cache,
 # refresh sanitize / quant_predicate.
 # ---------------------------------------------------------------------------
+
 
 def _patch_text_model(q35: Any) -> None:
     cls = q35.TextModel
@@ -562,9 +569,7 @@ def _patch_text_model(q35: Any) -> None:
         for k, v in list(weights.items()):
             if "conv1d.weight" in k and v.shape[-1] != 1:
                 weights[k] = v.moveaxis(2, 1)
-            if should_shift_norm_weights and any(
-                k.endswith(sfx) for sfx in norm_keys
-            ):
+            if should_shift_norm_weights and any(k.endswith(sfx) for sfx in norm_keys):
                 if v.ndim == 1:
                     weights[k] = v + 1.0
         return weights
@@ -574,9 +579,7 @@ def _patch_text_model(q35: Any) -> None:
             if path.endswith("mlp.gate") or path.endswith("shared_expert_gate"):
                 return {"group_size": 64, "bits": 8}
             # Keep the MTP fusion projection in full precision.
-            if path.endswith("mtp.fc"):
-                return False
-            return True
+            return not path.endswith("mtp.fc")
 
         if (
             self.args.num_experts <= 0
@@ -602,6 +605,7 @@ def _patch_text_model(q35: Any) -> None:
 # too (their ``language_model`` is an instance of the patched ``TextModel``).
 # ---------------------------------------------------------------------------
 
+
 def _patch_outer_model(q35: Any) -> None:
     cls = q35.Model
     if _is_our_method(cls, "__call__", "_omlx_mtp_call_marker"):
@@ -624,9 +628,7 @@ def _patch_outer_model(q35: Any) -> None:
         )
 
     def mtp_forward(self, hidden_states, next_token_ids, mtp_cache):
-        return self.language_model.mtp_forward(
-            hidden_states, next_token_ids, mtp_cache
-        )
+        return self.language_model.mtp_forward(hidden_states, next_token_ids, mtp_cache)
 
     def make_mtp_cache(self):
         return self.language_model.make_mtp_cache()
@@ -644,6 +646,7 @@ def _patch_outer_model(q35: Any) -> None:
 # ---------------------------------------------------------------------------
 # qwen3_5_moe.Model — sanitize replacement to handle MTP MoE weight formats.
 # ---------------------------------------------------------------------------
+
 
 def _patch_qwen3_5_moe() -> None:
     """Replace ``qwen3_5_moe.Model.sanitize`` to handle MTP MoE weight formats.
@@ -719,9 +722,7 @@ def _patch_qwen3_5_moe() -> None:
             getattr(self.language_model.args, "mtp_num_hidden_layers", 0) or 0
         )
         if mtp_num > 0:
-            has_any_mtp = any(
-                k.startswith("language_model.mtp.") for k in new_weights
-            )
+            has_any_mtp = any(k.startswith("language_model.mtp.") for k in new_weights)
             if not has_any_mtp:
                 logger.debug(
                     "mtp_num_hidden_layers=%d but no MTP weights found; "

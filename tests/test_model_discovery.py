@@ -2,7 +2,6 @@
 """Tests for model discovery functionality."""
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -301,7 +300,9 @@ class TestDetectModelType:
         (tmp_path / "config.json").write_text(json.dumps(config))
         assert detect_model_type(tmp_path) == "llm"
 
-    def test_detect_gemma3_text_model_without_sentence_transformers_modules_is_llm(self, tmp_path):
+    def test_detect_gemma3_text_model_without_sentence_transformers_modules_is_llm(
+        self, tmp_path
+    ):
         """gemma3_text base transformer without sentence-transformers modules stays LLM."""
         config = {
             "model_type": "gemma3_text",
@@ -567,10 +568,12 @@ class TestDiscoverModels:
         reranker_dir = tmp_path / "bge-reranker"
         reranker_dir.mkdir()
         (reranker_dir / "config.json").write_text(
-            json.dumps({
-                "model_type": "modernbert",
-                "architectures": ["ModernBertForSequenceClassification"]
-            })
+            json.dumps(
+                {
+                    "model_type": "modernbert",
+                    "architectures": ["ModernBertForSequenceClassification"],
+                }
+            )
         )
         (reranker_dir / "model.safetensors").write_bytes(b"0" * 500)
 
@@ -1004,9 +1007,7 @@ class TestUnsupportedModels:
         # Create a TTS model
         tts_dir = tmp_path / "Qwen3-TTS"
         tts_dir.mkdir()
-        (tts_dir / "config.json").write_text(
-            json.dumps({"model_type": "qwen3_tts"})
-        )
+        (tts_dir / "config.json").write_text(json.dumps({"model_type": "qwen3_tts"}))
         (tts_dir / "model.safetensors").write_bytes(b"0" * 1500)
 
         models = discover_models(tmp_path)
@@ -1039,7 +1040,9 @@ class TestHfCacheDiscovery:
         snapshot.mkdir(parents=True)
         return entry, snapshot
 
-    def _make_hf_cache_model(self, parent: Path, org: str, name: str, model_type: str = "llama"):
+    def _make_hf_cache_model(
+        self, parent: Path, org: str, name: str, model_type: str = "llama"
+    ):
         """Helper to create an HF cache entry with a valid model in the snapshot."""
         _, snapshot = self._make_hf_cache_entry(parent, org, name)
         (snapshot / "config.json").write_text(json.dumps({"model_type": model_type}))
@@ -1047,7 +1050,9 @@ class TestHfCacheDiscovery:
 
     def test_resolve_valid_entry(self, tmp_path):
         """Valid HF cache entry resolves to snapshot path and model name."""
-        entry, snapshot = self._make_hf_cache_entry(tmp_path, "mlx-community", "Qwen3-8B-4bit")
+        entry, snapshot = self._make_hf_cache_entry(
+            tmp_path, "mlx-community", "Qwen3-8B-4bit"
+        )
 
         result = _resolve_hf_cache_entry(entry)
         assert result is not None
@@ -1082,7 +1087,9 @@ class TestHfCacheDiscovery:
 
     def test_resolve_strips_whitespace_from_refs(self, tmp_path):
         """Trailing newline in refs/main is stripped (matches real HF cache)."""
-        entry, snapshot = self._make_hf_cache_entry(tmp_path, "mlx-community", "Qwen3-8B")
+        entry, snapshot = self._make_hf_cache_entry(
+            tmp_path, "mlx-community", "Qwen3-8B"
+        )
         # Overwrite with trailing newline (like real HF cache)
         (entry / "refs" / "main").write_text(self.FAKE_COMMIT + "\n")
 
@@ -1115,7 +1122,10 @@ class TestHfCacheDiscovery:
 
         models = discover_models(tmp_path)
         assert models["Qwen3-8B-4bit"].model_path == str(
-            tmp_path / "models--mlx-community--Qwen3-8B-4bit" / "snapshots" / self.FAKE_COMMIT
+            tmp_path
+            / "models--mlx-community--Qwen3-8B-4bit"
+            / "snapshots"
+            / self.FAKE_COMMIT
         )
 
     def test_hf_cache_without_config_json_skipped(self, tmp_path):

@@ -69,17 +69,19 @@ buffer's ``_size`` by 1 to discard the rejected draft (mirroring PR 990's
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def apply() -> bool:
     """Wrap ``GenerationBatch.__init__`` + ``GenerationBatch.next``.
@@ -191,6 +193,7 @@ def _is_mtp_eligible(gen_batch: Any) -> bool:
         return False
     try:
         from . import is_mtp_active
+
         if not is_mtp_active():
             return False
     except Exception:
@@ -198,9 +201,7 @@ def _is_mtp_eligible(gen_batch: Any) -> bool:
     uids = getattr(gen_batch, "uids", None)
     if uids is None or len(uids) != 1:
         return False
-    if _has_grammar_processors(gen_batch):
-        return False
-    return True
+    return not _has_grammar_processors(gen_batch)
 
 
 def _ineligibility_reason(gen_batch: Any) -> str:
@@ -220,6 +221,7 @@ def _ineligibility_reason(gen_batch: Any) -> str:
         return "model has no attached mtp head"
     try:
         from . import is_mtp_active
+
         if not is_mtp_active():
             return "mtp_active flag is off (model_settings.mtp_enabled was False at load time)"
     except Exception:
@@ -241,6 +243,7 @@ class _MtpStepFallback(RuntimeError):
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _MtpStats:
@@ -278,23 +281,23 @@ class _MtpState:
     # (token_id_int, logprobs_1d, source_label). source_label is one of
     # "init", "draft", "bonus", "verify" — used to bucket stats correctly
     # when the queue is drained.
-    queue: Deque[Tuple[int, Any, str]] = field(default_factory=deque)
+    queue: deque[tuple[int, Any, str]] = field(default_factory=deque)
 
     # Cache for the MTP head (separate from gen_batch.prompt_cache).
-    mtp_cache: Optional[List[Any]] = None
+    mtp_cache: list[Any] | None = None
 
     # First input token of the next verify forward. Tracked as a 1-element
     # mx.array (uint32) so it can be concatenated with `draft_tok` cheaply.
-    next_main: Optional[Any] = None
+    next_main: Any | None = None
 
     # Draft logprobs (vocab,) needed by stochastic acceptance / residual sampling.
-    draft_tok: Optional[Any] = None  # (1,) uint32
-    draft_lp: Optional[Any] = None  # (vocab,) float
+    draft_tok: Any | None = None  # (1,) uint32
+    draft_lp: Any | None = None  # (vocab,) float
     # Filtered (sampler-applied) draft logprobs reused by the next cycle's
     # acceptance ratio + residual sampling. Mirrors PR 990's accept_lp,
     # adapted to oMLX's callable-sampler contract via metadata-introspection.
     # None when the sampler exposes no metadata (raw-lp fallback path).
-    draft_accept_lp: Optional[Any] = None  # (vocab,) float
+    draft_accept_lp: Any | None = None  # (vocab,) float
     # Host-side int copy of draft_tok. Cached at draft creation time so the
     # verify cycle can compare draft vs verify ids without a separate
     # GPU→CPU sync (`int(draft_tok.tolist()[0])` would force a stall).
@@ -307,6 +310,7 @@ class _MtpState:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_sampler(gen_batch: Any):
     """Match ``GenerationBatch._step``'s per-sequence sampler resolution (batch=1)."""
@@ -322,7 +326,7 @@ def _is_greedy(gen_batch):
     return True
 
 
-def _proc_list(gen_batch: Any) -> Optional[List[Any]]:
+def _proc_list(gen_batch: Any) -> list[Any] | None:
     if gen_batch.logits_processors and gen_batch.logits_processors[0]:
         return gen_batch.logits_processors[0]
     return None
@@ -344,7 +348,7 @@ def _has_grammar_processors(gen_batch: Any) -> bool:
     )
 
 
-def _mtp_state_valid_for_batch(gen_batch: Any, state: Optional[_MtpState]) -> bool:
+def _mtp_state_valid_for_batch(gen_batch: Any, state: _MtpState | None) -> bool:
     """MTP state may only represent one uid in one current singleton slot."""
     if state is None:
         return False
@@ -357,24 +361,20 @@ def _drop_mtp_state(
     reason: str,
     *,
     log_stats: bool = False,
-) -> Optional[_MtpState]:
+) -> _MtpState | None:
     """Delete attached MTP state, optionally surfacing stats for external finish."""
     state = getattr(gen_batch, "_omlx_mtp_state", None)
     if state is None:
         return None
     if log_stats:
-        try:
+        with contextlib.suppress(Exception):
             _log_mtp_stats(
                 getattr(state, "uid", "?"),
                 state.stats,
                 getattr(state, "_finish_reason", reason),
             )
-        except Exception:
-            pass
-    try:
+    with contextlib.suppress(AttributeError):
         delattr(gen_batch, "_omlx_mtp_state")
-    except AttributeError:
-        pass
     logger.debug("MTP state dropped: %s", reason)
     return state
 
@@ -384,7 +384,7 @@ def _drop_invalid_mtp_state(
     reason: str,
     *,
     log_empty: bool = False,
-) -> Optional[_MtpState]:
+) -> _MtpState | None:
     """Drop state after a batch reshape unless ownership still matches."""
     state = getattr(gen_batch, "_omlx_mtp_state", None)
     if state is None:
@@ -399,7 +399,7 @@ def _drop_invalid_mtp_state(
     )
 
 
-def _prepare_mtp_state_for_next(gen_batch: Any) -> Optional[_MtpState]:
+def _prepare_mtp_state_for_next(gen_batch: Any) -> _MtpState | None:
     """Return a valid singleton MTP state, lazily initializing if needed."""
     state = getattr(gen_batch, "_omlx_mtp_state", None)
     if _mtp_state_valid_for_batch(gen_batch, state):
@@ -439,7 +439,7 @@ def _set_singleton_mrope_delta(gen_batch: Any) -> None:
         model.set_batch_rope_deltas(mx.array([delta]))
 
 
-def _rebuild_singleton_cache(model: Any) -> Optional[List[Any]]:
+def _rebuild_singleton_cache(model: Any) -> list[Any] | None:
     """Build a fresh single-sequence batch-aware cache (left_padding=[0]).
 
     Reuses mlx-lm's own ``_make_cache`` so the per-layer types match exactly
@@ -498,9 +498,7 @@ def _reconcile_mtp_to_standard(gen_batch: Any, state: _MtpState) -> bool:
             next_tok = mx.array([int(next_id)], dtype=mx.uint32)
             next_lp = next_lp_1d
         else:
-            prev_buf = (
-                gen_batch._token_context[0].tokens if procs is not None else None
-            )
+            prev_buf = gen_batch._token_context[0].tokens if procs is not None else None
             ll = _apply_processors(procs, prev_buf, last_logits)
             next_lp_2d = _logprobs(ll)
             next_tok = _ensure_uint32(_resolve_sampler(gen_batch)(next_lp_2d))
@@ -588,7 +586,7 @@ def _trim_token_buffer(gen_batch: Any, n: int) -> None:
     buf._size = max(0, buf._size - n)
 
 
-def _restore_or_trim_caches(prompt_cache: List[Any]) -> bool:
+def _restore_or_trim_caches(prompt_cache: list[Any]) -> bool:
     """Roll back one token from each layer cache after a draft rejection.
 
     SSM / linear-attention layers expose ``rollback_state`` populated by the
@@ -614,8 +612,8 @@ def _restore_or_trim_caches(prompt_cache: List[Any]) -> bool:
 
 def _rollback_after_reject(
     model: Any,
-    prompt_cache: List[Any],
-    gdn_states: Optional[list],
+    prompt_cache: list[Any],
+    gdn_states: list | None,
     accepted: int = 0,
     block_size: int = 2,
 ) -> bool:
@@ -641,9 +639,7 @@ def _rollback_after_reject(
     non-MTP step.
     """
     if gdn_states is not None and hasattr(model, "rollback_speculative_cache"):
-        model.rollback_speculative_cache(
-            prompt_cache, gdn_states, accepted, block_size
-        )
+        model.rollback_speculative_cache(prompt_cache, gdn_states, accepted, block_size)
         return True
     return _restore_or_trim_caches(prompt_cache)
 
@@ -651,9 +647,9 @@ def _rollback_after_reject(
 def _call_backbone(
     model: Any,
     inputs: Any,
-    cache: List[Any],
+    cache: list[Any],
     n_confirmed: int = 0,
-) -> Tuple[Any, Any, Optional[list]]:
+) -> tuple[Any, Any, list | None]:
     """Run the backbone with ``return_hidden=True`` and normalise the result.
 
     Returns ``(logits, hidden_pre_norm, gdn_states_or_None)``:
@@ -677,12 +673,10 @@ def _call_backbone(
             return result
         if len(result) == 2:
             return result[0], result[1], None
-    raise TypeError(
-        f"backbone returned unexpected shape: {type(result).__name__}"
-    )
+    raise TypeError(f"backbone returned unexpected shape: {type(result).__name__}")
 
 
-def _clear_rollback(prompt_cache: List[Any]) -> None:
+def _clear_rollback(prompt_cache: list[Any]) -> None:
     """Drop ``rollback_state`` snapshots after a draft is accepted."""
     for c in prompt_cache:
         if hasattr(c, "rollback_state") and c.rollback_state is not None:
@@ -702,6 +696,7 @@ def _ensure_uint32(arr):
 # Post-init: run one extra backbone forward + MTP forward; queue the two
 # emitted tokens; stash a draft for the first verify cycle.
 # ---------------------------------------------------------------------------
+
 
 def _post_init_mtp(gen_batch: Any) -> None:
     """Bridge from standard ``__init__``'s ``_step()`` into PR 990's cycle 1.
@@ -763,9 +758,7 @@ def _post_init_mtp(gen_batch: Any) -> None:
         prev_with_main_and_next = mx.concatenate(
             [prev_buf, _ensure_uint32(next_main_tok)]
         )
-        mtp_logits_2d = _apply_processors(
-            procs, prev_with_main_and_next, mtp_logits_2d
-        )
+        mtp_logits_2d = _apply_processors(procs, prev_with_main_and_next, mtp_logits_2d)
     draft_lp_2d = _logprobs(mtp_logits_2d)
     draft_tok = sampler(draft_lp_2d)
     # Filtered draft lp — what the sampler actually drew from. The next
@@ -797,6 +790,7 @@ def _post_init_mtp(gen_batch: Any) -> None:
 # next() dispatch
 # ---------------------------------------------------------------------------
 
+
 def _mtp_next(gen_batch: Any, state: _MtpState) -> Any:
     """Emit one token; run a verify cycle if the queue is empty."""
     if state.queue:
@@ -816,7 +810,7 @@ def _mtp_next(gen_batch: Any, state: _MtpState) -> Any:
     return _emit_response(gen_batch, token_id, logprobs_1d, state.stats)
 
 
-def _log_mtp_stats(uid: Any, stats: "_MtpStats", finish_reason: str) -> None:
+def _log_mtp_stats(uid: Any, stats: _MtpStats, finish_reason: str) -> None:
     """Emit a one-line summary of MTP draft/verify activity for a finished sequence.
 
     Format chosen to match PR 990's headline metrics, plus component timings
@@ -868,6 +862,7 @@ def _bump_emit_stat(state: _MtpState, source: str) -> None:
 # ---------------------------------------------------------------------------
 # Verify cycle: 2-token forward + accept/reject + MTP forward for next draft.
 # ---------------------------------------------------------------------------
+
 
 def _run_verify_cycle(gen_batch: Any, state: _MtpState) -> None:
     """Run one verify cycle. Populates ``state.queue`` with 1 (reject) or 2
@@ -954,8 +949,7 @@ def _run_verify_cycle(gen_batch: Any, state: _MtpState) -> None:
         accept = verify_id == draft_id
     else:
         log_accept = (
-            verify_accept_lp[0, draft_id].item()
-            - draft_accept_lp[draft_id].item()
+            verify_accept_lp[0, draft_id].item() - draft_accept_lp[draft_id].item()
         )
         # Draw the acceptance roll from mx.random so it follows the same
         # mx.random.seed the rest of the sampler uses (line ~962 residual
@@ -1001,8 +995,11 @@ def _run_verify_cycle(gen_batch: Any, state: _MtpState) -> None:
     # accepted=0 means only the confirmed token (verify position) is kept;
     # block_size=2 covers both the confirmed and the rejected draft.
     if not _rollback_after_reject(
-        gen_batch.model, gen_batch.prompt_cache, gdn_states,
-        accepted=0, block_size=2,
+        gen_batch.model,
+        gen_batch.prompt_cache,
+        gdn_states,
+        accepted=0,
+        block_size=2,
     ):
         if procs is not None:
             _trim_token_buffer(gen_batch, 1)
@@ -1043,13 +1040,14 @@ def _run_verify_cycle(gen_batch: Any, state: _MtpState) -> None:
 # Helpers used by the verify cycle.
 # ---------------------------------------------------------------------------
 
+
 def _step_mtp(
     gen_batch: Any,
     hidden_at_position: Any,
     next_main_tok: Any,
-    prev_buf: Optional[Any],
-    stats: Optional["_MtpStats"] = None,
-) -> Tuple[Any, Any]:
+    prev_buf: Any | None,
+    stats: _MtpStats | None = None,
+) -> tuple[Any, Any]:
     """Run one MTP-head forward + sample. Returns ``(draft_tok, draft_lp)``.
 
     Side effect: caches the host-side int copy of the new draft on
@@ -1071,9 +1069,7 @@ def _step_mtp(
     )
     mtp_logits_2d = mtp_logits[:, -1, :]
     if procs is not None and prev_buf is not None:
-        prev_with_next = mx.concatenate(
-            [prev_buf, _ensure_uint32(next_main_tok)]
-        )
+        prev_with_next = mx.concatenate([prev_buf, _ensure_uint32(next_main_tok)])
         mtp_logits_2d = _apply_processors(procs, prev_with_next, mtp_logits_2d)
     new_lp = _logprobs(mtp_logits_2d)
     new_tok = sampler(new_lp)
@@ -1091,7 +1087,7 @@ def _step_mtp(
     return _ensure_uint32(new_tok), new_lp.squeeze(0)
 
 
-def _residual_sample(verify_lp_2d: Any, draft_lp_1d: Any) -> Tuple[int, Any]:
+def _residual_sample(verify_lp_2d: Any, draft_lp_1d: Any) -> tuple[int, Any]:
     """Sample from ``max(p_target - p_draft, 0)`` (Leviathan et al. 2022).
 
     On degenerate input (residual all zero) falls back to the target
@@ -1119,12 +1115,13 @@ def _residual_sample(verify_lp_2d: Any, draft_lp_1d: Any) -> Tuple[int, Any]:
 # Response builder — mirrors GenerationBatch.next()'s per-sequence epilogue.
 # ---------------------------------------------------------------------------
 
+
 def _emit_response(
     gen_batch: Any,
     token_id: int,
     logprobs_1d: Any,
-    stats: Optional["_MtpStats"] = None,
-) -> List[Any]:
+    stats: _MtpStats | None = None,
+) -> list[Any]:
     """Produce a single-element response list, applying the standard
     epilogue (token append + max_tokens / matcher checks) so external
     callers (BatchGenerator, scheduler, response stream) see the same
@@ -1132,7 +1129,7 @@ def _emit_response(
     """
     Response = type(gen_batch).Response
 
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
     match_sequence = None
 
     gen_batch.tokens[0].append(token_id)
@@ -1165,10 +1162,8 @@ def _emit_response(
         # Drop state *before* filter([]) so the patched_filter epilogue
         # doesn't double-log when the standard finish path already logged.
         if hasattr(gen_batch, "_omlx_mtp_state"):
-            try:
+            with contextlib.suppress(AttributeError):
                 delattr(gen_batch, "_omlx_mtp_state")
-            except AttributeError:
-                pass
         gen_batch.filter([])
         return [response]
 

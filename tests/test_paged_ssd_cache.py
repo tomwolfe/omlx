@@ -450,7 +450,7 @@ class TestPagedSSDCacheManager:
         """Test manager initialization."""
         cache_dir = tmp_path / "ssd_cache"
 
-        manager = PagedSSDCacheManager(
+        PagedSSDCacheManager(
             cache_dir=cache_dir,
             max_size_bytes=1024**3,
         )
@@ -1151,9 +1151,9 @@ class TestAsyncWriteAndTimeoutLoad:
         # The old implementation used ThreadPoolExecutor(max_workers=1) which
         # caused deadlocks when mx.load() in a worker thread contested Metal
         # GPU resources with the main inference thread. Verify it's gone.
-        assert not hasattr(
-            ssd_cache, "_load_executor"
-        ), "_load_executor should not exist — it causes Metal GPU deadlocks"
+        assert not hasattr(ssd_cache, "_load_executor"), (
+            "_load_executor should not exist — it causes Metal GPU deadlocks"
+        )
 
     def test_sequential_loads_no_queue_blocking(self, ssd_cache, mx):
         """Regression test: consecutive loads must not block each other."""
@@ -1184,9 +1184,9 @@ class TestAsyncWriteAndTimeoutLoad:
 
         # 5 loads from SSD should complete in well under 5s
         # (each ~2ms read + reconstruction)
-        assert (
-            elapsed < 5.0
-        ), f"Sequential loads took {elapsed:.1f}s — possible queue blocking"
+        assert elapsed < 5.0, (
+            f"Sequential loads took {elapsed:.1f}s — possible queue blocking"
+        )
 
     def test_writer_error_handling(self, ssd_cache, mx):
         """Verify that background writer errors clean up the index."""
@@ -1715,6 +1715,7 @@ class TestPreloadMatchedBlocks:
     def mx(self):
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")
@@ -1999,6 +2000,7 @@ class TestPreloadBlocks:
     def mx(self):
         try:
             import mlx.core as mx
+
             return mx
         except ImportError:
             pytest.skip("MLX not available")

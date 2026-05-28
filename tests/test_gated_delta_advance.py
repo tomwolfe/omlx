@@ -55,6 +55,7 @@ def test_patched_call_signature_matches_mlx_vlm():
     passes ``gdn_sink`` (speculative-cache rollback) must still work.
     """
     import inspect
+
     from omlx.patches.gated_delta_advance import _build_replacement_call
 
     sig = inspect.signature(_build_replacement_call())

@@ -7,17 +7,15 @@ Dataset bundled from HAERAE-HUB/KMMLU on HuggingFace.
 """
 
 import logging
-import re
 from pathlib import Path
-from typing import Optional
 
 from .base import BaseBenchmark
 from .datasets import load_jsonl, stratified_sample
+from .utils import index_to_letter
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
-ANSWER_MAP = {1: "A", 2: "B", 3: "C", 4: "D"}
 
 
 def _format_subject_name(subject: str) -> str:
@@ -28,8 +26,8 @@ def _format_question(item: dict) -> str:
     question = item["question"]
     choices = item["choices"]
     parts = [question]
-    for i, choice in enumerate(choices, start=1):
-        parts.append(f"{ANSWER_MAP[i]}. {choice}")
+    for letter, choice in zip(["A", "B", "C", "D"], choices):
+        parts.append(f"{letter}. {choice}")
     return "\n".join(parts)
 
 
@@ -47,27 +45,39 @@ class KMMLUBenchmark(BaseBenchmark):
         all_items = []
         for item in test_items:
             answer_idx = item.get("answer", 0)
-            answer_letter = ANSWER_MAP.get(answer_idx, str(answer_idx))
-            all_items.append({
-                "question": item["question"],
-                "choices": item["choices"],
-                "answer": answer_letter,
-                "subject": item.get("subject", "unknown"),
-            })
+            answer_letter = (
+                index_to_letter(answer_idx)
+                if isinstance(answer_idx, int)
+                else str(answer_idx)
+            )
+            all_items.append(
+                {
+                    "question": item["question"],
+                    "choices": item["choices"],
+                    "answer": answer_letter,
+                    "subject": item.get("subject", "unknown"),
+                }
+            )
 
         dev_items = load_jsonl(DATA_DIR / "kmmlu_dev.jsonl")
         for item in dev_items:
             subject = item.get("subject", "unknown")
             answer_idx = item.get("answer", 0)
-            answer_letter = ANSWER_MAP.get(answer_idx, str(answer_idx))
+            answer_letter = (
+                index_to_letter(answer_idx)
+                if isinstance(answer_idx, int)
+                else str(answer_idx)
+            )
             if subject not in self._few_shot_examples:
                 self._few_shot_examples[subject] = []
             if len(self._few_shot_examples[subject]) < 5:
-                self._few_shot_examples[subject].append({
-                    "question": item["question"],
-                    "choices": item["choices"],
-                    "answer": answer_letter,
-                })
+                self._few_shot_examples[subject].append(
+                    {
+                        "question": item["question"],
+                        "choices": item["choices"],
+                        "answer": answer_letter,
+                    }
+                )
 
         logger.info(f"KMMLU: loaded {len(all_items)} questions")
 
@@ -100,5 +110,5 @@ class KMMLUBenchmark(BaseBenchmark):
     def check_answer(self, predicted: str, item: dict) -> bool:
         return predicted == item["answer"]
 
-    def get_category(self, item: dict) -> Optional[str]:
+    def get_category(self, item: dict) -> str | None:
         return item.get("subject")

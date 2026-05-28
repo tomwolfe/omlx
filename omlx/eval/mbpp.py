@@ -9,64 +9,38 @@ SECURITY NOTE: This benchmark executes model-generated code on the local
 machine. Mitigations: subprocess with timeout, memory limits, temp file cleanup.
 """
 
+import contextlib
 import logging
 import os
-import re
 import resource
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Optional
 
-from .base import BaseBenchmark, BenchmarkResult, QuestionResult
+from .base import BaseBenchmark
 from .constants import EXEC_MEMORY_LIMIT_BYTES, EXEC_TIMEOUT_SECONDS
 from .datasets import deterministic_sample, load_jsonl
+from .utils import extract_last_code_block
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 
 
-def _extract_code(response: str) -> str:
-    """Extract Python code from model response."""
-    match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    lines = response.strip().split("\n")
-    code_lines = []
-    in_code = False
-    for line in lines:
-        if not in_code and (
-            line.startswith("def ")
-            or line.startswith("class ")
-            or line.startswith("import ")
-            or line.startswith("from ")
-            or line.startswith("#")
-        ):
-            in_code = True
-        if in_code:
-            code_lines.append(line)
-
-    return "\n".join(code_lines) if code_lines else response.strip()
-
-
 def _set_resource_limits():
-    try:
-        resource.setrlimit(resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES, EXEC_MEMORY_LIMIT_BYTES))
-    except (ValueError, resource.error):
-        pass
-    try:
-        resource.setrlimit(resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS + 5, EXEC_TIMEOUT_SECONDS + 5))
-    except (ValueError, resource.error):
-        pass
+    with contextlib.suppress(OSError, ValueError):
+        resource.setrlimit(
+            resource.RLIMIT_AS, (EXEC_MEMORY_LIMIT_BYTES, EXEC_MEMORY_LIMIT_BYTES)
+        )
+    with contextlib.suppress(OSError, ValueError):
+        resource.setrlimit(
+            resource.RLIMIT_CPU, (EXEC_TIMEOUT_SECONDS + 5, EXEC_TIMEOUT_SECONDS + 5)
+        )
 
 
-def _execute_with_tests(code: str, test_list: list[str], setup_code: str = "") -> tuple[bool, str]:
+def _execute_with_tests(
+    code: str, test_list: list[str], setup_code: str = ""
+) -> tuple[bool, str]:
     """Execute generated code with assertion-based test cases."""
     test_code = "\n".join(test_list)
     script = f"{setup_code}\n{code}\n{test_code}\n"
@@ -97,10 +71,8 @@ def _execute_with_tests(code: str, test_list: list[str], setup_code: str = "") -
     except Exception as e:
         return False, str(e)[:500]
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
 
 
 class MBPPBenchmark(BaseBenchmark):
@@ -118,13 +90,15 @@ class MBPPBenchmark(BaseBenchmark):
             test_list = item.get("test_list", [])
             if not test_list:
                 continue
-            normalized.append({
-                "id": str(item["task_id"]),
-                "prompt": item["prompt"],
-                "test_list": test_list,
-                "test_setup_code": item.get("test_setup_code", ""),
-                "question": item["prompt"],
-            })
+            normalized.append(
+                {
+                    "id": str(item["task_id"]),
+                    "prompt": item["prompt"],
+                    "test_list": test_list,
+                    "test_setup_code": item.get("test_setup_code", ""),
+                    "question": item["prompt"],
+                }
+            )
 
         logger.info(f"MBPP: loaded {len(normalized)} problems")
 
@@ -151,7 +125,7 @@ class MBPPBenchmark(BaseBenchmark):
         return [{"role": "user", "content": content}]
 
     def extract_answer(self, response: str, item: dict) -> str:
-        return self._extract_last_code_block(response)
+        return extract_last_code_block(response)
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         if not predicted.strip():

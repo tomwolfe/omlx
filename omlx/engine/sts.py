@@ -20,7 +20,7 @@ import gc
 import logging
 import os
 import tempfile
-from typing import Any, Dict, Optional
+from typing import Any
 
 import mlx.core as mx
 import numpy as np
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Maps config.json model_type / architecture values to STS engine families.
 # This is the authoritative source — name-based matching is only a fallback.
-_CONFIG_TYPE_TO_FAMILY: Dict[str, str] = {
+_CONFIG_TYPE_TO_FAMILY: dict[str, str] = {
     # model_type values (from config.json or mlx-audio dir names)
     "deepfilternet": "deepfilternet",
     "mossformer2_se": "mossformer2",
@@ -71,6 +71,7 @@ def _detect_sts_family(model_name: str, config_model_type: str = "") -> str:
     if os.path.isfile(config_path):
         try:
             import json
+
             with open(config_path) as f:
                 cfg = json.load(f)
             for arch in cfg.get("architectures", []):
@@ -219,11 +220,15 @@ def _process_lfm2(model_and_processor, audio_path: str, **kwargs) -> bytes:
 
     if not audio_frames:
         # No audio generated — return silence
-        return _audio_to_wav_bytes(np.zeros(1600, dtype=np.float32), _DEFAULT_SAMPLE_RATE)
+        return _audio_to_wav_bytes(
+            np.zeros(1600, dtype=np.float32), _DEFAULT_SAMPLE_RATE
+        )
 
     # Stack frames: each frame is (num_codebooks,) -> stack to (T, num_codebooks)
     # then transpose to (num_codebooks, T) for decode_audio
-    codes = mx.stack(audio_frames, axis=0)  # (T, num_codebooks) or (T, 1, num_codebooks)
+    codes = mx.stack(
+        audio_frames, axis=0
+    )  # (T, num_codebooks) or (T, 1, num_codebooks)
     if codes.ndim == 3:
         codes = codes.squeeze(1)  # (T, num_codebooks)
     codes = codes.transpose(1, 0)  # (num_codebooks, T)
@@ -361,8 +366,10 @@ class STSEngine(BaseNonStreamingEngine):
         file_size = os.path.getsize(audio_path) if os.path.exists(audio_path) else 0
         logger.info(
             "STS process: model=%s, family=%s, file=%s (%d bytes)",
-            self._model_name, self._family,
-            os.path.basename(audio_path), file_size,
+            self._model_name,
+            self._family,
+            os.path.basename(audio_path),
+            file_size,
         )
 
         family = self._family
@@ -391,13 +398,15 @@ class STSEngine(BaseNonStreamingEngine):
             elapsed = time.monotonic() - t0
             logger.info(
                 "STS process done: model=%s, %.2fs, %d bytes output",
-                self._model_name, elapsed, len(result),
+                self._model_name,
+                elapsed,
+                len(result),
             )
             return result
         finally:
             await self._finish_activity(activity_id)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get engine statistics."""
         return {
             "model_name": self._model_name,

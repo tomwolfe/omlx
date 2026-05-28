@@ -26,7 +26,7 @@ mlx-lm's GatedDeltaNet already has both fixes, so we leave it untouched.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 try:
     import mlx.core as mx
@@ -49,11 +49,11 @@ def _build_replacement_call():
 
     def __call__(
         self,
-        inputs: "mx.array",
-        mask: Optional["mx.array"] = None,
-        cache: Optional[Any] = None,
-        gdn_sink: Optional[list] = None,
-    ) -> "mx.array":
+        inputs: mx.array,
+        mask: mx.array | None = None,
+        cache: Any | None = None,
+        gdn_sink: list | None = None,
+    ) -> mx.array:
         B, S, _ = inputs.shape
 
         # Optional sharding group (mlx-lm only — mlx-vlm class has no such

@@ -17,7 +17,7 @@ without further changes.
 from __future__ import annotations
 
 import math
-from typing import Callable, List
+from collections.abc import Callable
 
 import mlx.core as mx
 
@@ -98,7 +98,7 @@ def apply_xtc(
     logits: mx.array,
     xtc_probability: float,
     xtc_threshold: float,
-    xtc_special_tokens: List[int],
+    xtc_special_tokens: list[int],
 ) -> mx.array:
     """XTC sampling — with ``xtc_probability``, mask out all but the lowest
     above-threshold token to encourage diversity."""
@@ -137,23 +137,24 @@ def make_sampler(
     top_k: int = 0,
     xtc_probability: float = 0.0,
     xtc_threshold: float = 0.0,
-    xtc_special_tokens: List[int] = [],
+    xtc_special_tokens: list[int] = None,
 ) -> Callable[[mx.array], mx.array]:
     """Build a sampler callable matching ``mlx_lm.sample_utils.make_sampler``.
 
     Returns ``argmax`` when ``temp == 0``; otherwise composes optional
     top-p / min-p / xtc / top-k filters and finishes with categorical sampling.
     """
+    if xtc_special_tokens is None:
+        xtc_special_tokens = []
     if temp == 0:
-        sampler = lambda x: mx.argmax(x, axis=-1)
+        def sampler(x):
+            return mx.argmax(x, axis=-1)
     else:
         sampling_methods = []
         if top_p > 0 and top_p < 1.0:
             sampling_methods.append(lambda x: apply_top_p(x, top_p))
         if min_p != 0.0:
-            sampling_methods.append(
-                lambda x: apply_min_p(x, min_p, min_tokens_to_keep)
-            )
+            sampling_methods.append(lambda x: apply_min_p(x, min_p, min_tokens_to_keep))
         if xtc_probability > 0.0:
             sampling_methods.append(
                 lambda x: apply_xtc(

@@ -10,6 +10,7 @@ from safetensors.numpy import save_file
 
 try:
     import mlx.core as mx
+
     HAS_MLX = True
 except ImportError:
     HAS_MLX = False
@@ -73,7 +74,7 @@ class TestCausalLMReranker:
         def mock_forward(input_ids):
             vocab_size = 10000
             seq_len = input_ids.shape[1]
-            logits = mx.zeros((1, seq_len, vocab_size))
+            mx.zeros((1, seq_len, vocab_size))
             # Set logits at last position
             last_pos = np.zeros(vocab_size)
             if call_count[0] == 0:
@@ -92,7 +93,9 @@ class TestCausalLMReranker:
 
         model.model = MagicMock(side_effect=mock_forward)
 
-        result = model._rerank_causal_lm("test query", ["relevant doc", "irrelevant doc"])
+        result = model._rerank_causal_lm(
+            "test query", ["relevant doc", "irrelevant doc"]
+        )
 
         assert isinstance(result, RerankOutput)
         assert len(result.scores) == 2
@@ -124,7 +127,9 @@ class TestCausalLMReranker:
         model._loaded = True
 
         mock_result = RerankOutput(scores=[0.9], indices=[0], total_tokens=10)
-        with patch.object(model, "_rerank_causal_lm", return_value=mock_result) as mock_method:
+        with patch.object(
+            model, "_rerank_causal_lm", return_value=mock_result
+        ) as mock_method:
             result = model.rerank("query", ["doc"])
             mock_method.assert_called_once()
             assert result.scores == [0.9]
@@ -137,7 +142,9 @@ class TestCausalLMReranker:
         model._loaded = True
 
         mock_result = RerankOutput(scores=[0.5], indices=[0], total_tokens=10)
-        with patch.object(model, "_rerank_causal_lm", return_value=mock_result) as mock_method:
+        with patch.object(
+            model, "_rerank_causal_lm", return_value=mock_result
+        ) as mock_method:
             model.rerank("query", ["doc"])
             # max_length=None should use default 8192 for CausalLM
             args, _ = mock_method.call_args
@@ -151,7 +158,9 @@ class TestCausalLMReranker:
         model._loaded = True
 
         mock_result = RerankOutput(scores=[0.5], indices=[0], total_tokens=10)
-        with patch.object(model, "_rerank_causal_lm", return_value=mock_result) as mock_method:
+        with patch.object(
+            model, "_rerank_causal_lm", return_value=mock_result
+        ) as mock_method:
             model.rerank("query", ["doc"], max_length=1024)
             args, _ = mock_method.call_args
             assert args[2] == 1024
@@ -164,7 +173,9 @@ class TestCausalLMReranker:
         model._loaded = True
 
         mock_result = RerankOutput(scores=[0.5], indices=[0], total_tokens=10)
-        with patch.object(model, "_rerank_causal_lm", return_value=mock_result) as mock_method:
+        with patch.object(
+            model, "_rerank_causal_lm", return_value=mock_result
+        ) as mock_method:
             model.rerank("query", ["doc"], max_length=512)
             args, _ = mock_method.call_args
             assert args[2] == 512
@@ -475,9 +486,7 @@ class TestRerankerCompileFallback:
         model._loaded = True
         model._is_causal_lm = False
         model._is_compiled = True
-        model._compiled_seq_logits = MagicMock(
-            side_effect=RuntimeError("compile fail")
-        )
+        model._compiled_seq_logits = MagicMock(side_effect=RuntimeError("compile fail"))
 
         # Mock processor
         mock_processor = MagicMock()

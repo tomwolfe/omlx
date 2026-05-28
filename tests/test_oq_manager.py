@@ -15,10 +15,14 @@ def fp_model_dir(tmp_path):
     d.mkdir()
     model = d / "Llama-3B"
     model.mkdir()
-    (model / "config.json").write_text(json.dumps({
-        "model_type": "llama",
-        "num_hidden_layers": 32,
-    }))
+    (model / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "llama",
+                "num_hidden_layers": 32,
+            }
+        )
+    )
     (model / "model.safetensors").write_bytes(b"\x00" * 4096)
     return d
 
@@ -30,10 +34,14 @@ def second_fp_model_dir(tmp_path):
     d.mkdir()
     model = d / "Qwen-7B"
     model.mkdir()
-    (model / "config.json").write_text(json.dumps({
-        "model_type": "qwen2",
-        "num_hidden_layers": 28,
-    }))
+    (model / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "qwen2",
+                "num_hidden_layers": 28,
+            }
+        )
+    )
     (model / "model.safetensors").write_bytes(b"\x00" * 4096)
     return d
 
@@ -52,23 +60,17 @@ class TestOQManagerUpdateModelDirs:
         assert "Llama-3B" in names_before
         assert "Qwen-7B" not in names_before
 
-        manager.update_model_dirs(
-            [str(fp_model_dir), str(second_fp_model_dir)]
-        )
+        manager.update_model_dirs([str(fp_model_dir), str(second_fp_model_dir)])
 
         source_after, _ = await manager.list_quantizable_models()
         names_after = {m["name"] for m in source_after}
         assert "Llama-3B" in names_after
         assert "Qwen-7B" in names_after
 
-    def test_output_dir_tracks_primary_dir(
-        self, fp_model_dir, second_fp_model_dir
-    ):
+    def test_output_dir_tracks_primary_dir(self, fp_model_dir, second_fp_model_dir):
         # Output is always written to the primary (first) directory.
         manager = OQManager(model_dirs=[str(fp_model_dir)])
         assert manager._output_dir == fp_model_dir
 
-        manager.update_model_dirs(
-            [str(second_fp_model_dir), str(fp_model_dir)]
-        )
+        manager.update_model_dirs([str(second_fp_model_dir), str(fp_model_dir)])
         assert manager._output_dir == second_fp_model_dir

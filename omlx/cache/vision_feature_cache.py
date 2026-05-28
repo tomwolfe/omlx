@@ -15,18 +15,18 @@ Uses the same safetensors serialization infrastructure as PagedSSDCacheManager
 for consistency and bfloat16 support.
 """
 
+import contextlib
 import errno
 import hashlib
-import json
 import logging
 import os
 import queue
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import mlx.core as mx
 
@@ -49,9 +49,7 @@ def _composite_hash(model_name: str, image_hash: str) -> str:
     Using a hash avoids filesystem issues with long model paths
     and ensures uniform directory distribution.
     """
-    return hashlib.sha256(
-        f"{model_name}:{image_hash}".encode()
-    ).hexdigest()
+    return hashlib.sha256(f"{model_name}:{image_hash}".encode()).hexdigest()
 
 
 @dataclass
@@ -78,7 +76,7 @@ class VisionFeatureSSDCache:
 
     def __init__(
         self,
-        cache_dir: Optional[Path] = None,
+        cache_dir: Path | None = None,
         max_size_bytes: int = 10 * 1024**3,
         max_memory_entries: int = 20,
     ):
@@ -102,7 +100,7 @@ class VisionFeatureSSDCache:
         self._pending_lock = threading.Lock()
 
         # Stats
-        self._stats: Dict[str, int] = {
+        self._stats: dict[str, int] = {
             "hits": 0,
             "misses": 0,
             "saves": 0,
@@ -121,7 +119,7 @@ class VisionFeatureSSDCache:
         )
         self._writer_thread.start()
 
-    def get(self, image_hash: str, model_name: str) -> Optional[Any]:
+    def get(self, image_hash: str, model_name: str) -> Any | None:
         """Look up cached vision features.
 
         Checks memory LRU first, then SSD. Returns None on miss.
@@ -187,10 +185,8 @@ class VisionFeatureSSDCache:
         """Shut down the background writer and flush pending writes."""
         self._writer_shutdown.set()
         # Send sentinel to unblock the writer
-        try:
+        with contextlib.suppress(queue.Full):
             self._write_queue.put_nowait(None)
-        except queue.Full:
-            pass
         self._writer_thread.join(timeout=10.0)
         logger.debug(
             "Vision feature cache closed: %s",
@@ -198,7 +194,7 @@ class VisionFeatureSSDCache:
         )
 
     @property
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         """Return a copy of cache statistics."""
         return dict(self._stats)
 
@@ -252,7 +248,7 @@ class VisionFeatureSSDCache:
 
         try:
             # Extract raw bytes on the Metal-safe thread
-            tensors_raw: Dict[str, Tuple[bytes, str, List[int]]] = {}
+            tensors_raw: dict[str, tuple[bytes, str, list[int]]] = {}
             num_tensors = 1
 
             if isinstance(features, list):
@@ -293,11 +289,11 @@ class VisionFeatureSSDCache:
 
             # Enqueue write
             try:
-                self._write_queue.put_nowait(
-                    (key, tensors_raw, metadata, file_path)
-                )
+                self._write_queue.put_nowait((key, tensors_raw, metadata, file_path))
             except queue.Full:
-                logger.debug("Vision cache write queue full, dropping write for %s", key[:32])
+                logger.debug(
+                    "Vision cache write queue full, dropping write for %s", key[:32]
+                )
                 with self._ssd_lock:
                     if key in self._ssd_index:
                         self._ssd_total_size -= self._ssd_index[key].file_size
@@ -325,7 +321,7 @@ class VisionFeatureSSDCache:
             except Exception:
                 pass
 
-    def _load_from_ssd(self, key: str) -> Optional[Any]:
+    def _load_from_ssd(self, key: str) -> Any | None:
         """Load cached features from SSD.
 
         Args:
@@ -361,9 +357,7 @@ class VisionFeatureSSDCache:
                     if tensor_key in arrays:
                         features.append(arrays[tensor_key])
                     else:
-                        logger.warning(
-                            "Missing tensor %s in %s", tensor_key, file_path
-                        )
+                        logger.warning("Missing tensor %s in %s", tensor_key, file_path)
                         return None
 
             # Update access time
@@ -432,14 +426,19 @@ class VisionFeatureSSDCache:
                     indexed += 1
 
                 except Exception as e:
-                    logger.debug("Failed to read vision cache file %s: %s", file_path, e)
+                    logger.debug(
+                        "Failed to read vision cache file %s: %s", file_path, e
+                    )
                     errors += 1
 
         if scanned > 0:
             logger.info(
                 "Vision feature SSD cache scan: scanned=%d, indexed=%d, errors=%d, "
                 "total_size=%.1fMB",
-                scanned, indexed, errors, self._ssd_total_size / (1024 * 1024),
+                scanned,
+                indexed,
+                errors,
+                self._ssd_total_size / (1024 * 1024),
             )
 
     # ── Background writer ───────────────────────────────────────────
@@ -462,9 +461,7 @@ class VisionFeatureSSDCache:
 
             try:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
-                temp_path = file_path.with_name(
-                    file_path.stem + "_tmp.safetensors"
-                )
+                temp_path = file_path.with_name(file_path.stem + "_tmp.safetensors")
                 actual_size = _write_safetensors_no_mx(
                     str(temp_path), tensors_raw, metadata
                 )

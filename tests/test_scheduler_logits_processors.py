@@ -47,7 +47,10 @@ class TestLogitsProcessorsCallShape:
             Path(__file__).resolve().parents[1] / "omlx" / "scheduler.py"
         ).read_text()
         # The variable name and the wrapping pattern.
-        assert "per_row_lps = list(logits_processors) if logits_processors else []" in scheduler_src, (
+        assert (
+            "per_row_lps = list(logits_processors) if logits_processors else []"
+            in scheduler_src
+        ), (
             "scheduler.py must wrap per-request logits_processors as a "
             "list before passing to BatchGenerator.insert. See #934."
         )
@@ -71,9 +74,7 @@ class TestCorruptionPatternRecovery:
     def test_not_iterable_with_traceback_text(self):
         """Match should work even when the message has extra context
         (e.g., when re-raised with formatting)."""
-        err = TypeError(
-            "in GenerationBatch._step: 'NoneType' object is not iterable"
-        )
+        err = TypeError("in GenerationBatch._step: 'NoneType' object is not iterable")
         assert is_cache_corruption_error(err) is True
 
 
@@ -110,7 +111,6 @@ class TestHeterogeneousMergeReproduction:
         because they harden the loop with ``or []``), it's safe to
         relax our caller-side guard. Until then, the guard is required.
         """
-        import mlx.core as mx
         from mlx_lm.generate import BatchGenerator
 
         model, tokenizer = small_model

@@ -13,12 +13,16 @@ Supports:
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 import mlx.core as mx
 import mlx.nn as nn
 
-from .base_model import BaseModelArgs, BaseModelOutput, mean_pooling, normalize_embeddings
+from .base_model import (
+    BaseModelArgs,
+    BaseModelOutput,
+    mean_pooling,
+    normalize_embeddings,
+)
 
 
 @dataclass
@@ -40,14 +44,14 @@ class ModelArgs(BaseModelArgs):
     output_past: bool = True
     pad_token_id: int = 1
     position_embedding_type: str = "absolute"
-    pooling_config: Optional[dict] = None
+    pooling_config: dict | None = None
 
     # SequenceClassification specific
-    architectures: List[str] = field(default_factory=lambda: ["XLMRobertaModel"])
+    architectures: list[str] = field(default_factory=lambda: ["XLMRobertaModel"])
     num_labels: int = 1
-    classifier_dropout: Optional[float] = None
-    id2label: Optional[Dict[int, str]] = None
-    label2id: Optional[Dict[str, int]] = None
+    classifier_dropout: float | None = None
+    id2label: dict[int, str] | None = None
+    label2id: dict[str, int] | None = None
 
     @property
     def is_sequence_classification(self) -> bool:
@@ -95,7 +99,7 @@ class XLMRobertaEmbeddings(nn.Module):
         else:
             input_shape = inputs_embeds.shape[:-1]
 
-        seq_length = input_shape[1]
+        input_shape[1]
 
         if position_ids is None:
             position_ids = self.create_position_ids_from_input_ids(
@@ -491,10 +495,7 @@ class Model(nn.Module):
                 continue
 
             # Remove "roberta." prefix if present
-            if k.startswith("roberta."):
-                new_key = k[len("roberta.") :]
-            else:
-                new_key = k
+            new_key = k[len("roberta."):] if k.startswith("roberta.") else k
 
             sanitized_weights[new_key] = v
 

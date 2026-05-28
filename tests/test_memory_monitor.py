@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for memory_monitor module (SSD-only mode)."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
-from omlx.memory_monitor import MemoryMonitor, MemoryInfo
+import pytest
+
+from omlx.memory_monitor import MemoryInfo, MemoryMonitor
 from omlx.utils.hardware import format_bytes
 
 
@@ -209,10 +210,10 @@ class TestMemoryMonitor:
 
     def test_format_bytes(self):
         """Test format_bytes utility function."""
-        assert "1.00 KB" == format_bytes(1024)
-        assert "1.00 MB" == format_bytes(1024 * 1024)
-        assert "1.00 GB" == format_bytes(1024 * 1024 * 1024)
-        assert "512 B" == format_bytes(512)
+        assert format_bytes(1024) == "1.00 KB"
+        assert format_bytes(1024 * 1024) == "1.00 MB"
+        assert format_bytes(1024 * 1024 * 1024) == "1.00 GB"
+        assert format_bytes(512) == "512 B"
 
     def test_repr(self):
         """Test string representation."""

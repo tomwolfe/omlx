@@ -154,7 +154,10 @@ class TestExtractGemma4Messages:
                 role="user",
                 content=[
                     {"type": "text", "text": "describe"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                    },
                 ],
             ),
         ]
@@ -186,7 +189,10 @@ class TestExtractGemma4Messages:
                 role="user",
                 content=[
                     {"type": "text", "text": "Look at this"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                    },
                 ],
             ),
             Message(role="user", content="What is it?"),
@@ -328,18 +334,14 @@ class TestGemma4OutputParserSession:
         """``<|channel>thought<channel|>`` with no newline is recovered via
         the bare-marker fallback, with the ``thought`` keyword absorbed."""
         sess = self._make_session()
-        result = sess._consume_text(
-            "<|channel>thought<channel|>after", final=True
-        )
+        result = sess._consume_text("<|channel>thought<channel|>after", final=True)
         assert result.visible_text == "<think>\n</think>\nafter"
 
     def test_bare_open_with_non_thought_channel(self):
         """A bare ``<|channel>X<channel|>`` (unknown channel name) is wrapped
         defensively as a thought block rather than leaking the markers."""
         sess = self._make_session()
-        result = sess._consume_text(
-            "<|channel>X<channel|>after", final=True
-        )
+        result = sess._consume_text("<|channel>X<channel|>after", final=True)
         assert result.visible_text == "<think>\nX</think>\nafter"
 
     def test_streaming_canonical_split_at_marker_boundary(self):
@@ -349,9 +351,7 @@ class TestGemma4OutputParserSession:
         # Streaming defer: nothing emitted yet because the bare match could
         # still extend to the canonical form.
         assert r1.visible_text == ""
-        r2 = sess._consume_text(
-            "thought\nreasoning\n<channel|>answer", final=True
-        )
+        r2 = sess._consume_text("thought\nreasoning\n<channel|>answer", final=True)
         assert r1.visible_text + r2.visible_text == (
             "<think>\nreasoning\n</think>\nanswer"
         )
@@ -381,7 +381,7 @@ class TestGemma4OutputParserSession:
     def test_tool_response_markers_dropped(self):
         sess = self._make_session()
         result = sess._consume_text(
-            "<|tool_response>{\"x\":1}<tool_response|>after", final=True
+            '<|tool_response>{"x":1}<tool_response|>after', final=True
         )
         assert result.visible_text == '{"x":1}after'
 

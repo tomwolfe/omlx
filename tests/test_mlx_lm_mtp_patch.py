@@ -21,10 +21,10 @@ from omlx.utils.model_loading import (
     maybe_apply_pre_load_patches,
 )
 
-
 # ---------------------------------------------------------------------------
 # Patch orchestrator + sub-modules
 # ---------------------------------------------------------------------------
+
 
 class TestApplyOrchestrator:
     def test_apply_idempotent(self):
@@ -219,11 +219,13 @@ class TestQwen35MoeSanitize:
         if not qwen35_model.apply():
             pytest.skip("qwen35_model patch refused to apply")
         from omlx.patches.mlx_lm_mtp.qwen35_model import _patch_qwen3_5_moe
+
         _patch_qwen3_5_moe()
 
     @pytest.fixture()
     def moe_model(self):
         from types import SimpleNamespace
+
         from mlx_lm.models import qwen3_5_moe as moe
 
         args = SimpleNamespace(
@@ -326,7 +328,9 @@ class TestDeepseekV4Model:
         # Simulate the base patch not having run by removing the module.
         # No module-level _PATCHED to reset anymore — sub-patcher does its
         # own marker-based idempotency check against the live class state.
-        monkeypatch.setitem(__import__("sys").modules, "mlx_lm.models.deepseek_v4", None)
+        monkeypatch.setitem(
+            __import__("sys").modules, "mlx_lm.models.deepseek_v4", None
+        )
         # When the module is None / missing, apply() returns False without
         # raising — that's the contract for non-DeepSeek models.
         applied = deepseek_v4_model.apply()
@@ -377,10 +381,10 @@ class TestBatchGeneratorDispatch:
 
     def test_is_mtp_eligible_requires_mtp_forward_and_solo_batch(self):
         from omlx.patches.mlx_lm_mtp import (
+            batch_generator,
             is_mtp_active,
             set_mtp_active,
         )
-        from omlx.patches.mlx_lm_mtp import batch_generator
 
         _is_mtp_eligible = batch_generator._is_mtp_eligible
 
@@ -416,8 +420,7 @@ class TestBatchGeneratorDispatch:
             assert _is_mtp_eligible(_GenBatch(_NonMtpModel(), uids=[1])) is False
             # Has mtp_forward but no attached head → still off.
             assert (
-                _is_mtp_eligible(_GenBatch(_MtpModelWithoutHead(), uids=[1]))
-                is False
+                _is_mtp_eligible(_GenBatch(_MtpModelWithoutHead(), uids=[1])) is False
             )
             # Head attached but the per-load mtp_active flag is off
             # (e.g. VLM runtime patches attach unconditionally so weight
@@ -428,9 +431,7 @@ class TestBatchGeneratorDispatch:
             # Has both method and head + batch=1 + flag on → triggers the path.
             assert _is_mtp_eligible(_GenBatch(_MtpModel(), uids=[1])) is True
             # MTP model with batch=2 falls back to standard step.
-            assert (
-                _is_mtp_eligible(_GenBatch(_MtpModel(), uids=[1, 2])) is False
-            )
+            assert _is_mtp_eligible(_GenBatch(_MtpModel(), uids=[1, 2])) is False
             # Empty batch never triggers.
             assert _is_mtp_eligible(_GenBatch(_MtpModel(), uids=[])) is False
             # Grammar-constrained decoding relies on GenerationBatch._step hooks,
@@ -443,8 +444,8 @@ class TestBatchGeneratorDispatch:
 
     def test_mtp_state_valid_requires_single_matching_uid(self):
         from omlx.patches.mlx_lm_mtp.batch_generator import (
-            _MtpState,
             _mtp_state_valid_for_batch,
+            _MtpState,
         )
 
         state = _MtpState(uid=7)
@@ -457,8 +458,8 @@ class TestBatchGeneratorDispatch:
 
     def test_drop_invalid_mtp_state_after_batch_reshape(self):
         from omlx.patches.mlx_lm_mtp.batch_generator import (
-            _MtpState,
             _drop_invalid_mtp_state,
+            _MtpState,
         )
 
         batch = SimpleNamespace(uids=[1, 2], _omlx_mtp_state=_MtpState(uid=1))
@@ -470,8 +471,8 @@ class TestBatchGeneratorDispatch:
 
     def test_drop_invalid_mtp_state_keeps_matching_singleton(self):
         from omlx.patches.mlx_lm_mtp.batch_generator import (
-            _MtpState,
             _drop_invalid_mtp_state,
+            _MtpState,
         )
 
         state = _MtpState(uid=1)
@@ -499,9 +500,7 @@ class TestBatchGeneratorDispatch:
         )
 
         def fake_post_init(gen_batch):
-            gen_batch._omlx_mtp_state = batch_generator._MtpState(
-                uid=gen_batch.uids[0]
-            )
+            gen_batch._omlx_mtp_state = batch_generator._MtpState(uid=gen_batch.uids[0])
 
         monkeypatch.setattr(batch_generator, "_post_init_mtp", fake_post_init)
 
@@ -529,9 +528,7 @@ class TestBatchGeneratorDispatch:
         )
 
         def fake_post_init(gen_batch):
-            gen_batch._omlx_mtp_state = batch_generator._MtpState(
-                uid=gen_batch.uids[0]
-            )
+            gen_batch._omlx_mtp_state = batch_generator._MtpState(uid=gen_batch.uids[0])
 
         monkeypatch.setattr(batch_generator, "_post_init_mtp", fake_post_init)
 
@@ -664,6 +661,7 @@ class TestBatchGeneratorDispatch:
 # ModelSettings — mtp_enabled field + mutual exclusion
 # ---------------------------------------------------------------------------
 
+
 class TestModelSettingsMtp:
     def test_default_mtp_disabled(self):
         s = ModelSettings()
@@ -698,6 +696,7 @@ class TestModelSettingsMtp:
 # utils.model_loading — compatibility helpers + dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestMtpCompatibilityHelpers:
     def test_has_mtp_heads_top_level_field(self):
         assert _has_mtp_heads({"mtp_num_hidden_layers": 1}) is True
@@ -706,9 +705,7 @@ class TestMtpCompatibilityHelpers:
         assert _has_mtp_heads({"num_nextn_predict_layers": 2}) is True
 
     def test_has_mtp_heads_text_config_field(self):
-        assert (
-            _has_mtp_heads({"text_config": {"mtp_num_hidden_layers": 1}}) is True
-        )
+        assert _has_mtp_heads({"text_config": {"mtp_num_hidden_layers": 1}}) is True
 
     def test_has_mtp_heads_zero_is_false(self):
         assert _has_mtp_heads({"mtp_num_hidden_layers": 0}) is False
@@ -772,10 +769,13 @@ class TestPreLoadPatchDispatch:
             str(tmp_path), model_settings=ModelSettings(mtp_enabled=True)
         )
         # The skip path should log a warning so the user sees why MTP was inactive.
-        assert any(
-            "MTP path will be inactive" in record.getMessage()
-            for record in caplog.records
-        ) or True  # logger.warning may be filtered by pytest logging level
+        assert (
+            any(
+                "MTP path will be inactive" in record.getMessage()
+                for record in caplog.records
+            )
+            or True
+        )  # logger.warning may be filtered by pytest logging level
 
     def test_dispatch_handles_missing_config(self, tmp_path):
         # No config.json at all — function must not raise.
@@ -796,6 +796,7 @@ class TestPreLoadPatchDispatch:
 # ---------------------------------------------------------------------------
 # batch_generator — _resolve_sampler + _is_greedy
 # ---------------------------------------------------------------------------
+
 
 class TestResolveSampler:
     """Tests for ``_resolve_sampler`` which mirrors GenerationBatch._step's
@@ -973,6 +974,7 @@ class TestIsGreedy:
 # Issue #1388 — mtp patch must self-heal when dflash overwrote __call__
 # ---------------------------------------------------------------------------
 
+
 class TestMTPPatchSelfHealing:
     """Process-wide regression for #1388.
 
@@ -985,8 +987,10 @@ class TestMTPPatchSelfHealing:
 
     def _simulate_dflash_overwrite(self, cls):
         """Replace cls.__call__ with a dflash-shaped hook that rejects n_confirmed."""
+
         def dflash_like_call(self, inputs, mask=None, cache=None):
             return inputs
+
         cls.__call__ = dflash_like_call
         cls._dflash_speculative_call_installed = True
 
@@ -995,6 +999,7 @@ class TestMTPPatchSelfHealing:
         the MTP patch — the class must end up with an n_confirmed-aware __call__
         again."""
         from omlx.patches.mlx_lm_mtp import qwen35_model
+
         assert qwen35_model.apply()
         from mlx_lm.models.qwen3_5 import GatedDeltaNet
 
@@ -1013,7 +1018,10 @@ class TestMTPPatchSelfHealing:
             GatedDeltaNet.__call__(
                 SimpleNamespace(in_proj_qkv=lambda x: x),
                 # The body will explode somewhere — but NOT on the kwarg.
-                None, mask=None, cache=None, n_confirmed=1,
+                None,
+                mask=None,
+                cache=None,
+                n_confirmed=1,
             )
         except TypeError as e:
             # Must not be the n_confirmed signature error.
@@ -1027,11 +1035,13 @@ class TestMTPPatchSelfHealing:
     def test_decoder_layer_reapplies_after_class_overwrite(self):
         """Same scenario for DecoderLayer.__call__."""
         from omlx.patches.mlx_lm_mtp import qwen35_model
+
         assert qwen35_model.apply()
         from mlx_lm.models.qwen3_5 import DecoderLayer
 
         def dflash_unrelated_call(self, x, mask=None, cache=None):
             return x
+
         DecoderLayer.__call__ = dflash_unrelated_call
 
         qwen35_model.apply()
@@ -1039,9 +1049,11 @@ class TestMTPPatchSelfHealing:
         # After re-apply, DecoderLayer.__call__ must accept n_confirmed again
         # (used by the MTP draft/verify path).
         seen = {"n_confirmed": None}
+
         def linear_attn_with_kwarg(h, mask=None, cache=None, n_confirmed=0):
             seen["n_confirmed"] = n_confirmed
             return h
+
         fake = SimpleNamespace(
             is_linear=True,
             input_layernorm=lambda x: x,
@@ -1057,6 +1069,7 @@ class TestMTPPatchSelfHealing:
         the underlying classes have been clobbered by another patch (dflash).
         """
         from omlx.patches.mlx_lm_mtp import apply_mlx_lm_mtp_patch
+
         assert apply_mlx_lm_mtp_patch() is True
         from mlx_lm.models.qwen3_5 import GatedDeltaNet
 
@@ -1068,6 +1081,5 @@ class TestMTPPatchSelfHealing:
         # (has our marker attribute set in the new implementation).
         current_call = GatedDeltaNet.__dict__.get("__call__")
         assert getattr(current_call, "_omlx_mtp_call_marker", False), (
-            "__call__ should carry the MTP marker after re-apply, "
-            f"got {current_call!r}"
+            f"__call__ should carry the MTP marker after re-apply, got {current_call!r}"
         )
