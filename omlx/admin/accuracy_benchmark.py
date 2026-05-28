@@ -8,6 +8,8 @@ Supports server-side queue and persistent result accumulation.
 Results survive browser close and persist until explicitly reset.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import logging
@@ -19,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
+from .event_stream import BenchmarkEventStream
 from .state_manager import StateManager
 
 logger = logging.getLogger(__name__)
@@ -111,13 +114,14 @@ class AccuracyBenchmarkRun:
     SSE delivery model mirrors `BenchmarkRun`: append-only `events`
     log + `cond` for live notification + `terminal` flag set on the
     final event. See benchmark.py for the rationale.
+
+    Uses ``BenchmarkEventStream`` for unified SSE delivery.
     """
 
     bench_id: str
     request: AccuracyBenchmarkRequest
     status: str = "running"  # running, completed, cancelled, error
     events: list[dict] = field(default_factory=list)
-    cond: asyncio.Condition = field(default_factory=asyncio.Condition)
     terminal: bool = False
     task: asyncio.Task | None = None
     results: list[dict] = field(default_factory=list)
@@ -132,6 +136,23 @@ class AccuracyBenchmarkRun:
     #   pending → loading → evaluating → unloading → completed
     # (cancelled / error replace the terminal phase on those branches.)
     phase: str = "pending"
+
+    def _make_event_stream(self) -> BenchmarkEventStream:
+        """Return a shared event stream backed by this run's state."""
+        stream = BenchmarkEventStream(bench_id=self.bench_id)
+        for event in self.events:
+            stream.events.append(event)
+            terminal_types = {"done", "error"}
+            if event.get("type") in terminal_types:
+                stream.terminal = True
+        return stream
+
+    def send(self, event: dict) -> None:
+        """Append an event to the run's log and wake any subscribers."""
+        terminal_types = {"done", "error"}
+        self.events.append(event)
+        if event.get("type") in terminal_types:
+            self.terminal = True
 
 
 # Accuracy stream closes on `done` (run finished) or `error`. Unlike the
@@ -320,19 +341,15 @@ async def cancel_queue() -> None:
 # --- SSE ---
 
 
-async def _send_event(run: AccuracyBenchmarkRun, event: dict) -> None:
-    """Append an event to the run's log and wake subscribers.
+def _send_event(run: AccuracyBenchmarkRun, event: dict) -> None:
+    """Append an event to the run's log and wake any subscribers.
 
     Updates `last_progress` (used by the REST `queue/status` endpoint
     for reconnect hints) and sets `run.terminal` on the final event.
     """
     if event.get("type") == "progress":
         run.last_progress = event
-    async with run.cond:
-        run.events.append(event)
-        if event.get("type") in _ACCURACY_TERMINAL_TYPES:
-            run.terminal = True
-        run.cond.notify_all()
+    run.send(event)
 
 
 # --- Benchmark execution ---

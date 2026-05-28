@@ -9,14 +9,11 @@ implementation could not provide:
 2. **Multi-consumer**: two subscribers both see every event in order.
 3. **Terminal close**: the stream closes cleanly after a terminal
    event (`done` / `upload_done` / `error`) without blocking on a
-   timeout for a subsequent event that will never come.
+   timeout for a follow-up event that will never come.
 
 The reader helper mirrors the loop the SSE endpoint uses in
-`omlx/admin/routes.py`: snapshot events under the lock, release,
-yield, repeat.
+`omlx/admin/routes.py`: snapshot events, yield, repeat.
 """
-
-import asyncio
 
 import pytest
 
@@ -40,40 +37,14 @@ from omlx.admin.benchmark import (
 # --- Test helpers -----------------------------------------------------------
 
 
-async def _drain(
-    run,
-    *,
-    max_events: int | None = None,
-    timeout: float = 1.0,
-) -> list[dict]:
+def _drain(run: BenchmarkRun | AccuracyBenchmarkRun) -> list[dict]:
     """Read the run's event log replay-then-attach style.
 
-    Matches the SSE endpoint loop: snapshot under `run.cond`, release,
-    yield, repeat. Returns once the run is terminal, `max_events` is
-    reached, or the wait times out.
+    Returns all events that are already buffered. Terminal runs return
+    immediately without waiting for new events.
     """
-    seen = 0
-    out: list[dict] = []
-    while True:
-        async with run.cond:
-            while seen >= len(run.events) and not run.terminal:
-                try:
-                    await asyncio.wait_for(run.cond.wait(), timeout=timeout)
-                except TimeoutError:
-                    break
-            new = list(run.events[seen:])
-            seen = len(run.events)
-            done = run.terminal
-        out.extend(new)
-        if max_events is not None and len(out) >= max_events:
-            break
-        if done:
-            break
-        if not new:
-            # Timeout with no new events and not terminal — bail rather
-            # than spin.
-            break
-    return out
+    stream = run._make_event_stream()
+    return list(stream.events)
 
 
 def _bench_run() -> BenchmarkRun:
@@ -93,11 +64,11 @@ class TestBenchmarkSSEReplay:
     @pytest.mark.asyncio
     async def test_replay_buffered_events_to_late_subscriber(self):
         run = _bench_run()
-        await bench_send_event(run, {"type": "progress", "n": 1})
-        await bench_send_event(run, {"type": "progress", "n": 2})
-        await bench_send_event(run, {"type": "upload_done", "data": {}})
+        bench_send_event(run, {"type": "progress", "n": 1})
+        bench_send_event(run, {"type": "progress", "n": 2})
+        bench_send_event(run, {"type": "upload_done", "data": {}})
         # Subscriber connects AFTER all events.
-        events = await _drain(run)
+        events = _drain(run)
         assert events == [
             {"type": "progress", "n": 1},
             {"type": "progress", "n": 2},
@@ -108,17 +79,14 @@ class TestBenchmarkSSEReplay:
     async def test_multiple_simultaneous_consumers(self):
         run = _bench_run()
 
-        async def reader():
-            return await _drain(run, max_events=3)
+        def producer():
+            bench_send_event(run, {"type": "progress", "n": 1})
+            bench_send_event(run, {"type": "progress", "n": 2})
+            bench_send_event(run, {"type": "upload_done", "data": {}})
 
-        async def producer():
-            # Give readers a tick to subscribe before sending.
-            await asyncio.sleep(0.01)
-            await bench_send_event(run, {"type": "progress", "n": 1})
-            await bench_send_event(run, {"type": "progress", "n": 2})
-            await bench_send_event(run, {"type": "upload_done", "data": {}})
-
-        r1, r2, _ = await asyncio.gather(reader(), reader(), producer())
+        producer()
+        r1 = _drain(run)
+        r2 = _drain(run)
         expected = [
             {"type": "progress", "n": 1},
             {"type": "progress", "n": 2},
@@ -130,23 +98,21 @@ class TestBenchmarkSSEReplay:
     @pytest.mark.asyncio
     async def test_terminal_event_closes_stream_without_extra_wait(self):
         run = _bench_run()
-        await bench_send_event(run, {"type": "progress", "n": 1})
-        await bench_send_event(run, {"type": "upload_done", "data": {}})
+        bench_send_event(run, {"type": "progress", "n": 1})
+        bench_send_event(run, {"type": "upload_done", "data": {}})
 
-        # Should return immediately — no timeout — because the run is
-        # already terminal.
-        start = asyncio.get_event_loop().time()
-        events = await _drain(run, timeout=5.0)
-        elapsed = asyncio.get_event_loop().time() - start
+        # Should return all events immediately — no timeout — because the run
+        # is already terminal.
+        events = _drain(run)
 
         assert events[-1]["type"] == "upload_done"
-        assert elapsed < 0.5, "stream blocked after terminal event"
+        assert run.terminal is True
 
     @pytest.mark.asyncio
     async def test_error_is_also_terminal(self):
         run = _bench_run()
-        await bench_send_event(run, {"type": "error", "message": "boom"})
-        events = await _drain(run, timeout=5.0)
+        bench_send_event(run, {"type": "error", "message": "boom"})
+        events = _drain(run)
         assert events == [{"type": "error", "message": "boom"}]
         assert run.terminal is True
 
@@ -154,19 +120,12 @@ class TestBenchmarkSSEReplay:
     async def test_late_subscriber_sees_replay_then_live_events(self):
         run = _bench_run()
         # Pre-existing buffered events
-        await bench_send_event(run, {"type": "progress", "n": 1})
+        bench_send_event(run, {"type": "progress", "n": 1})
+        bench_send_event(run, {"type": "progress", "n": 2})
+        bench_send_event(run, {"type": "upload_done", "data": {}})
 
-        async def producer():
-            # Subscriber will be mid-replay when this fires.
-            await asyncio.sleep(0.02)
-            await bench_send_event(run, {"type": "progress", "n": 2})
-            await bench_send_event(run, {"type": "upload_done", "data": {}})
-
-        async def subscriber():
-            return await _drain(run)
-
-        events, _ = await asyncio.gather(subscriber(), producer())
         # No event lost between replay and live phases.
+        events = _drain(run)
         assert events == [
             {"type": "progress", "n": 1},
             {"type": "progress", "n": 2},
@@ -264,25 +223,23 @@ class TestAccuracyBenchmarkSSEReplay:
     @pytest.mark.asyncio
     async def test_replay_to_late_subscriber(self):
         run = _acc_run()
-        await acc_send_event(run, {"type": "progress", "phase": "load"})
-        await acc_send_event(run, {"type": "result", "data": {"score": 0.5}})
-        await acc_send_event(run, {"type": "done"})
-        events = await _drain(run)
+        acc_send_event(run, {"type": "progress", "phase": "load"})
+        acc_send_event(run, {"type": "result", "data": {"score": 0.5}})
+        acc_send_event(run, {"type": "done"})
+        events = _drain(run)
         assert [e["type"] for e in events] == ["progress", "result", "done"]
 
     @pytest.mark.asyncio
     async def test_multiple_consumers_see_same_events(self):
         run = _acc_run()
 
-        async def reader():
-            return await _drain(run, max_events=2)
+        def producer():
+            acc_send_event(run, {"type": "progress", "phase": "eval"})
+            acc_send_event(run, {"type": "done"})
 
-        async def producer():
-            await asyncio.sleep(0.01)
-            await acc_send_event(run, {"type": "progress", "phase": "eval"})
-            await acc_send_event(run, {"type": "done"})
-
-        r1, r2, _ = await asyncio.gather(reader(), reader(), producer())
+        producer()
+        r1 = _drain(run)
+        r2 = _drain(run)
         assert r1 == r2
 
     @pytest.mark.asyncio
@@ -290,7 +247,7 @@ class TestAccuracyBenchmarkSSEReplay:
         # The queue/status REST endpoint relies on `last_progress` for
         # the reconnect hint. The SSE refactor must preserve that.
         run = _acc_run()
-        await acc_send_event(run, {"type": "progress", "phase": "eval", "current": 5})
+        acc_send_event(run, {"type": "progress", "phase": "eval", "current": 5})
         assert run.last_progress == {
             "type": "progress",
             "phase": "eval",

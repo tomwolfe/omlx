@@ -15,10 +15,13 @@ with composable, testable rule classes.
 from __future__ import annotations
 
 import re
+
 from abc import abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from .oq_constants import TensorPath
 
 # ---------------------------------------------------------------------------
 # Protocol / interface
@@ -61,12 +64,9 @@ class MoERouterRule:
 
     priority: int = -90
 
-    _ROUTER_PATTERNS = (".router", ".router.layer")
-
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
-        if path.endswith(".gate") and "gate_proj" not in path:
-            return False
-        if ".gate." in path and "gate_proj" not in path:
+        tp = TensorPath.from_string(path)
+        if tp.is_router or tp.is_gate_proj:
             return False
         return None
 
@@ -78,7 +78,8 @@ class SharedExpertRule:
     priority: int = -80
 
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
-        if "shared_expert_gate" in path and "gate_proj" not in path:
+        tp = TensorPath.from_string(path)
+        if tp.is_shared_expert:
             return {"bits": 8, "group_size": 64, "mode": "affine"}
         return None
 

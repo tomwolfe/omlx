@@ -15,6 +15,7 @@ from .oq_constants import (
     _LEVEL_BITS,
     _LEVEL_PROTECTION,
     _extract_layer_index,
+    TensorPath,
 )
 
 
@@ -51,16 +52,9 @@ class MoEPolicy(QuantizationPolicy):
     - High-parameter experts (>= 512) get tighter quantization.
     """
 
-    # Patterns that identify router or gate-only components
-    _ROUTER_PATTERNS = (
-        ".router",
-        ".router.layer",
-    )
-
     def _is_router(self, path: str) -> bool:
-        if path.endswith(".gate") and "gate_proj" not in path:
-            return True
-        return bool(".gate." in path and "gate_proj" not in path)
+        tp = TensorPath.from_string(path)
+        return tp.is_router or tp.is_gate_proj
 
     def evaluate(
         self,

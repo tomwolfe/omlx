@@ -30,8 +30,7 @@ try:
 except ImportError:
     HAS_MLX = False
 
-from omlx.model_discovery import _has_vision_subconfig
-
+from .model_discovery import _has_vision_subconfig
 from .oq_constants import (
     _LEVEL_BITS,
     _MAX_MODEL_RAM_FRACTION,
@@ -41,10 +40,20 @@ from .oq_constants import (
     _PROXY_QUANT_GROUP_SIZE,
     OQ_DTYPES,
     OQ_LEVELS,
+    _bits_fn_factory,
     _extract_layer_index,
     _gs_for_mode,
     _mode_for_bits,
+    TensorPath,
 )
+from .oq_policies import get_policy_for_model
+from .oq_rules import (
+    universal_quant_predicate,
+)
+from .oq_rules import (
+    universal_quant_predicate,
+)
+from .oq_policies import get_policy_for_model
 from .oq_rules import (
     universal_quant_predicate,
 )
@@ -76,7 +85,6 @@ def _bpw_targets_for_level(oq_level: float) -> tuple[float, float] | None:
     return _OQ_BPW_TARGETS.get(oq_level)
 
 
-@dataclass
 @dataclass
 class QuantPlan:
     """Byte-budgeted mixed-precision plan for a single quantization run."""

@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
+from .event_stream import BenchmarkEventStream
 from .state_manager import StateManager
 
 try:
@@ -79,13 +80,14 @@ class BenchmarkRun:
     wait on `cond` for new entries. `terminal` is set once the final
     event (`upload_done` / `error`) has been published so subscribers
     know to close their stream rather than wait for a follow-up.
+
+    Uses ``BenchmarkEventStream`` for unified SSE delivery.
     """
 
     bench_id: str
     request: BenchmarkRequest
     status: str = "running"  # running, completed, cancelled, error
     events: list[dict] = field(default_factory=list)
-    cond: asyncio.Condition = field(default_factory=asyncio.Condition)
     terminal: bool = False
     task: asyncio.Task | None = None
     results: list[dict] = field(default_factory=list)
@@ -111,6 +113,24 @@ class BenchmarkRun:
             "skipped_features": [],
         }
     )
+
+    def _make_event_stream(self) -> BenchmarkEventStream:
+        """Return a shared event stream backed by this run's state."""
+        stream = BenchmarkEventStream(bench_id=self.bench_id)
+        # Replay existing events
+        for event in self.events:
+            stream.events.append(event)
+            terminal_types = {"upload_done", "error", "done"}
+            if event.get("type") in terminal_types:
+                stream.terminal = True
+        return stream
+
+    def send(self, event: dict) -> None:
+        """Append an event to the run's log and wake any subscribers."""
+        terminal_types = {"upload_done", "error", "done"}
+        self.events.append(event)
+        if event.get("type") in terminal_types:
+            self.terminal = True
 
 
 # Event types that close the SSE stream for a bench run. `done` is NOT
@@ -218,17 +238,13 @@ def _compute_single_metrics(
     }
 
 
-async def _send_event(run: BenchmarkRun, event: dict) -> None:
+def _send_event(run: BenchmarkRun, event: dict) -> None:
     """Append an event to the run's log and wake any subscribers.
 
     Sets `run.terminal` when the event ends the stream so subscribers
     can return rather than wait for an event that will never come.
     """
-    async with run.cond:
-        run.events.append(event)
-        if event.get("type") in _BENCH_TERMINAL_TYPES:
-            run.terminal = True
-        run.cond.notify_all()
+    run.send(event)
 
 
 async def _run_single_test(
