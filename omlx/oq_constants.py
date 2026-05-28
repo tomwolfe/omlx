@@ -266,7 +266,12 @@ class TensorPath:
 
     @property
     def is_router(self) -> bool:
-        return self.module_type == ModuleType.ROUTER
+        """True if this tensor is a router or gate projection."""
+        parts_lower = ".".join(self.parts).lower()
+        return self.module_type == ModuleType.ROUTER or (
+            self.module_type == ModuleType.NONE
+            and ("router" in parts_lower or "gate" in parts_lower)
+        )
 
     @property
     def is_gate_proj(self) -> bool:
@@ -314,6 +319,50 @@ class TensorPath:
                 and "shared_expert" not in ".".join(self.parts).lower()
             )
         )
+
+    @property
+    def is_v(self) -> bool:
+        return self.projection == ProjectionType.V
+
+    @property
+    def is_q(self) -> bool:
+        return self.projection == ProjectionType.Q
+
+    @property
+    def is_k(self) -> bool:
+        return self.projection == ProjectionType.K
+
+    @property
+    def is_o(self) -> bool:
+        return self.projection == ProjectionType.O
+
+    @property
+    def is_w(self) -> bool:
+        return self.projection == ProjectionType.W
+
+    @property
+    def is_lm_head(self) -> bool:
+        return self.module_type == ModuleType.LM_HEAD
+
+    @property
+    def is_embed_tokens(self) -> bool:
+        return self.module_type == ModuleType.EMBED_TOKENS
+
+    @property
+    def is_lora(self) -> bool:
+        return "lora" in ".".join(self.parts).lower()
+
+    @property
+    def is_embed_audio(self) -> bool:
+        return "embed_audio" in ".".join(self.parts).lower()
+
+    @property
+    def is_gated_deltanet(self) -> bool:
+        return "gated_deltanet" in ".".join(self.parts).lower()
+
+    @property
+    def is_mixer(self) -> bool:
+        return "mixer" in ".".join(self.parts).lower()
 
     def __str__(self) -> str:
         return self._raw

@@ -391,51 +391,9 @@
 
             // Accuracy benchmark state
             accModelId: '',
-            accBenchmarks: { mmlu: true, mmlu_pro: false, kmmlu: false, cmmlu: false, jmmlu: false, hellaswag: false, truthfulqa: true, arc_challenge: false, winogrande: false, gsm8k: false, mathqa: false, humaneval: true, mbpp: false, livecodebench: false, bbq: false, safetybench: false },
-            accSampleSizes: { mmlu: 1000, mmlu_pro: 300, kmmlu: 300, cmmlu: 300, jmmlu: 300, hellaswag: 200, truthfulqa: 0, arc_challenge: 300, winogrande: 300, gsm8k: 100, mathqa: 300, humaneval: 0, mbpp: 200, livecodebench: 100, bbq: 300, safetybench: 300 },
-            accBenchmarkGroups: [
-                {
-                    name: 'Knowledge',
-                    benchmarks: [
-                        { key: 'mmlu', label: 'MMLU', desc: 'Knowledge · 57 subjects', fullSize: 14042, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                        { key: 'mmlu_pro', label: 'MMLU-Pro', desc: 'Hard knowledge · 14 subjects (10-way)', fullSize: 12032, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                        { key: 'kmmlu', label: 'KMMLU', desc: '한국어 지식 · 45 과목', fullSize: 35030, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                        { key: 'cmmlu', label: 'CMMLU', desc: '中文知识 · 67 科目', fullSize: 11582, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                        { key: 'jmmlu', label: 'JMMLU', desc: '日本語知識 · 112 科目', fullSize: 7536, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                    ],
-                },
-                {
-                    name: 'Commonsense & Reasoning',
-                    benchmarks: [
-                        { key: 'hellaswag', label: 'HellaSwag', desc: 'Commonsense reasoning', fullSize: 10042, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                        { key: 'arc_challenge', label: 'ARC-C', desc: 'Science reasoning', fullSize: 1172, sizes: [30, 50, 100, 200, 300] },
-                        { key: 'winogrande', label: 'Winogrande', desc: 'Coreference resolution', fullSize: 1267, sizes: [30, 50, 100, 200, 300] },
-                        { key: 'truthfulqa', label: 'TruthfulQA', desc: 'Truthfulness', fullSize: 817, sizes: [30, 50, 100, 200, 300] },
-                    ],
-                },
-                {
-                    name: 'Math',
-                    benchmarks: [
-                        { key: 'gsm8k', label: 'GSM8K', desc: 'Math reasoning', fullSize: 1319, sizes: [30, 50, 100, 200, 300] },
-                        { key: 'mathqa', label: 'MathQA', desc: 'Quantitative reasoning · 5-way', fullSize: 2985, sizes: [30, 50, 100, 200, 300, 500, 1000] },
-                    ],
-                },
-                {
-                    name: 'Coding',
-                    benchmarks: [
-                        { key: 'humaneval', label: 'HumanEval', desc: 'Function completion', fullSize: 164, sizes: [30, 50, 100] },
-                        { key: 'mbpp', label: 'MBPP', desc: 'Python problems', fullSize: 500, sizes: [30, 50, 100, 200, 300] },
-                        { key: 'livecodebench', label: 'LiveCodeBench', desc: 'Code generation', fullSize: 1055, sizes: [30, 50, 100, 200, 300] },
-                    ],
-                },
-                {
-                    name: 'Safety & Alignment',
-                    benchmarks: [
-                        { key: 'bbq', label: 'BBQ', desc: 'Social bias · 11 categories', fullSize: 10864, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                        { key: 'safetybench', label: 'SafetyBench', desc: 'Safety · 7 categories', fullSize: 11435, sizes: [30, 50, 100, 200, 300, 500, 1000, 2000] },
-                    ],
-                },
-            ],
+            accBenchmarks: null,
+            accSampleSizes: null,
+            accBenchmarkGroups: [],
             accBatchSize: 1,
             accEnableThinking: false,
             accRunning: false,
@@ -460,7 +418,8 @@
                     this.loadServerInfo(),
                     this.loadProfileFields(),
                     this.loadPresets(),
-                    this.checkForUpdate()
+                    this.checkForUpdate(),
+                    this.loadAccBenchData()
                 ]);
 
                 this.startUpdateCheckTimer();
@@ -2827,6 +2786,29 @@
             },
 
             // Accuracy benchmark functions
+
+            async loadAccBenchData() {
+                try {
+                    const resp = await fetch('/admin/data/benchmarks.json');
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        this.accBenchmarkGroups = data;
+                        // Build flat benchmark map from groups
+                        const benchmarks = {};
+                        const sampleSizes = {};
+                        data.forEach(group => {
+                            group.benchmarks.forEach(b => {
+                                benchmarks[b.key] = true;
+                                sampleSizes[b.key] = b.fullSize;
+                            });
+                        });
+                        this.accBenchmarks = benchmarks;
+                        this.accSampleSizes = sampleSizes;
+                    }
+                } catch (err) {
+                    console.error('Failed to load acc bench data:', err);
+                }
+            },
 
             async loadAccState() {
                 // Load accumulated results + queue status from server (page load / tab switch)

@@ -9,8 +9,6 @@ Run with:
     python3 tests/bpw_sanity_check.py
 """
 
-from __future__ import annotations
-
 from omlx.oq import _estimate_effective_bpw, _OQ_BPW_TARGETS
 
 
@@ -48,10 +46,10 @@ def test_bpw_deterministic() -> None:
     overrides = _mock_overrides()
 
     result1 = _estimate_effective_bpw(
-        named_shapes, base_bits=8, base_group_size=128, base_mode="affine"
+        named_shapes, base_bits=8, base_group_size=128, base_mode="affine", overrides=overrides
     )
     result2 = _estimate_effective_bpw(
-        named_shapes, base_bits=8, base_group_size=128, base_mode="affine"
+        named_shapes, base_bits=8, base_group_size=128, base_mode="affine", overrides=overrides
     )
 
     assert result1 == result2, f"BPW is non-deterministic: {result1} != {result2}"
@@ -64,7 +62,7 @@ def test_bpw_positive() -> None:
     overrides = _mock_overrides()
 
     effective_bpw = _estimate_effective_bpw(
-        named_shapes, base_bits=8, base_group_size=128, base_mode="affine"
+        named_shapes, base_bits=8, base_group_size=128, base_mode="affine", overrides=overrides
     )
 
     assert effective_bpw > 0, f"BPW must be positive, got {effective_bpw}"

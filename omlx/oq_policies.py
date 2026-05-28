@@ -66,36 +66,37 @@ class MoEPolicy(QuantizationPolicy):
         num_experts = (
             config.get("num_local_experts") or config.get("num_experts", 0) or 0
         )
+        tp = TensorPath.from_string(path)
 
         # switch_mlp paths get explicit bit control before router detection
-        if "switch_mlp" in path:
-            if "gate_proj" in path and "shared_expert" not in path:
+        if tp.is_switch_mlp:
+            if tp.is_gate_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
                 return bits_fn(4)
-            if "down_proj" in path and "shared_expert" not in path:
+            if tp.is_down_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
                 return bits_fn(3)
 
         # Shared expert (non-gate) gets 8-bit protection
-        if "shared_expert" in path and not path.endswith("shared_expert_gate"):
+        if tp.is_shared_expert:
             return {"bits": 8, "group_size": 64, "mode": "affine"}
 
         # MoE routers and gate-only paths stay fp16
-        if any(p in path for p in self._ROUTER_PATTERNS):
+        if self._is_router(path):
             return False
 
         # High-parameter expert paths get tighter quantization
         if num_experts >= 512:
-            if "gate_proj" in path and "shared_expert" not in path:
+            if tp.is_gate_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
                 return bits_fn(4)
-            if "down_proj" in path and "shared_expert" not in path:
+            if tp.is_down_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
@@ -115,14 +116,6 @@ class SsmPolicy(QuantizationPolicy):
     - SSM output projections get 8-bit protection.
     """
 
-    _SSM_SENSITIVE = (
-        "ssm_alpha",
-        "ssm_beta",
-        "a_log",
-        "time_decay",
-        "time_faaaa",
-    )
-
     def evaluate(
         self,
         path: str,
@@ -130,25 +123,21 @@ class SsmPolicy(QuantizationPolicy):
         oq_level: float,
         _bits_fn: Any,
     ) -> bool | dict:
-        path_l = path.lower()
+        tp = TensorPath.from_string(path)
 
         # SSM-sensitive parameters stay fp16
-        if any(p in path_l for p in self._SSM_SENSITIVE):
-            return False
-
-        # dt_bias: discretization step sensitivity
-        if path_l.endswith("dt_bias"):
+        if tp.is_ssm:
             return False
 
         # conv1d inside linear_attn → 8-bit
-        if "conv1d" in path_l and "linear_attn" in path_l:
+        if tp.is_mlp and tp.is_mha:
             bits_fn = _bits_fn or (
                 lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
             )
             return bits_fn(8)
 
         # linear_attn.out_proj → 5-bit
-        if "linear_attn.out_proj" in path_l:
+        if tp.is_mha:
             bits_fn = _bits_fn or (
                 lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
             )
@@ -165,12 +154,6 @@ class QwenMoEPolicy(QuantizationPolicy):
     - linear_attn.out_proj mirrors self_attn.o_proj sensitivity
     """
 
-    _QWEN_MOE_SENSITIVE = (
-        "dt_bias",
-        "conv1d",
-        "linear_attn.out_proj",
-    )
-
     def evaluate(
         self,
         path: str,
@@ -178,21 +161,21 @@ class QwenMoEPolicy(QuantizationPolicy):
         oq_level: float,
         _bits_fn: Any,
     ) -> bool | dict:
-        path_l = path.lower()
+        tp = TensorPath.from_string(path)
 
         # Qwen3_5 hybrid: dt_bias drives discretization, keep fp16
-        if "dt_bias" in path_l:
+        if tp.is_ssm:
             return False
 
         # conv1d inside linear_attn → 8-bit
-        if "conv1d" in path_l and "linear_attn" in path_l:
+        if tp.is_mlp and tp.is_mha:
             bits_fn = _bits_fn or (
                 lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
             )
             return bits_fn(8)
 
         # linear_attn.out_proj mirrors self_attn.o_proj sensitivity
-        if "linear_attn.out_proj" in path_l:
+        if tp.is_mha:
             bits_fn = _bits_fn or (
                 lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
             )
@@ -210,18 +193,6 @@ class VlmPolicy(QuantizationPolicy):
       multi_modal_projector, visual.merger, image_norm, temporal_embed.
     """
 
-    _VISION_PATTERNS = (
-        "visual.",
-        "vision_",
-        "patch_embed",
-        "pos_embed",
-        "image_newline",
-        "multi_modal_projector",
-        "visual.merger",
-        "image_norm",
-        "temporal_embed",
-    )
-
     def evaluate(
         self,
         path: str,
@@ -229,7 +200,8 @@ class VlmPolicy(QuantizationPolicy):
         oq_level: float,
         _bits_fn: Any,
     ) -> bool | dict:
-        return not any(p in path for p in self._VISION_PATTERNS)
+        tp = TensorPath.from_string(path)
+        return not tp.is_vision
 
 
 class AudioPolicy(QuantizationPolicy):
@@ -238,8 +210,6 @@ class AudioPolicy(QuantizationPolicy):
     Only audio_tower paths are skipped; embed_audio projections are
     quantized like embed_vision.embedding_projection.
     """
-
-    _AUDIO_PATTERNS = ("audio_tower",)
 
     def evaluate(
         self,
@@ -251,36 +221,37 @@ class AudioPolicy(QuantizationPolicy):
         num_experts = (
             config.get("num_local_experts") or config.get("num_experts", 0) or 0
         )
+        tp = TensorPath.from_string(path)
 
         # switch_mlp paths get explicit bit control before router detection
-        if "switch_mlp" in path:
-            if "gate_proj" in path and "shared_expert" not in path:
+        if tp.is_switch_mlp:
+            if tp.is_gate_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
                 return bits_fn(4)
-            if "down_proj" in path and "shared_expert" not in path:
+            if tp.is_down_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
                 return bits_fn(3)
 
         # Shared expert (non-gate) gets 8-bit protection
-        if "shared_expert" in path and not path.endswith("shared_expert_gate"):
+        if tp.is_shared_expert:
             return {"bits": 8, "group_size": 64, "mode": "affine"}
 
         # MoE routers and gate-only paths stay fp16
-        if any(p in path for p in self._ROUTER_PATTERNS):
+        if tp.is_router or tp.is_gate_proj:
             return False
 
         # High-parameter expert paths get tighter quantization
         if num_experts >= 512:
-            if "gate_proj" in path and "shared_expert" not in path:
+            if tp.is_gate_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
                 return bits_fn(4)
-            if "down_proj" in path and "shared_expert" not in path:
+            if tp.is_down_proj:
                 bits_fn = _bits_fn or (
                     lambda n: {"bits": n, "group_size": 64, "mode": "affine"}
                 )
@@ -306,49 +277,6 @@ class DefaultPolicy(QuantizationPolicy):
     - mixer.in_proj, mixer.out_proj, x_proj, dt_proj → 5-bit.
     """
 
-    _OUTPUT_SENSITIVE = (
-        "lm_head",
-        "output.weight",
-        "classifier",
-    )
-
-    _EMBED_SENSITIVE = (
-        "embed_tokens",
-        "wte",
-        "word_embeddings",
-    )
-
-    _ATTN_V_SENSITIVE = (
-        "v_proj",
-        "v_a_proj",
-        "v_b_proj",
-    )
-
-    _ATTN_Q_SENSITIVE = (
-        "q_proj",
-        "k_proj",
-    )
-
-    _QKV_SENSITIVE = (
-        "qkv_proj",
-        "in_proj_qkv",
-        "attn_qkv",
-    )
-
-    _DELTA_SENSITIVE = (
-        "in_proj_z",
-        "in_proj_a",
-        "in_proj_b",
-        "delta_net",
-    )
-
-    _MIXER_SENSITIVE = (
-        "mixer.in_proj",
-        "mixer.out_proj",
-        "x_proj",
-        "dt_proj",
-    )
-
     def evaluate(
         self,
         path: str,
@@ -363,14 +291,14 @@ class DefaultPolicy(QuantizationPolicy):
         base_bits = int(_LEVEL_BITS.get(oq_level, oq_level))
         protection = _LEVEL_PROTECTION.get(oq_level, "full")
         full_protection = protection == "full"
+        tp = TensorPath.from_string(path)
 
         # Layer sensitivity tracking
-        layer_idx = _extract_layer_index(path)
+        layer_idx = tp.layer_idx
         num_layers = config.get("num_hidden_layers") or config.get(
             "text_config", {}
         ).get("num_hidden_layers", 32)
-        layer_idx = _extract_layer_index(path)
-        sensitive = layer_idx >= 0 and (
+        sensitive = layer_idx is not None and (
             layer_idx < num_layers // 8 or layer_idx >= 7 * num_layers // 8
         )
 
@@ -380,84 +308,68 @@ class DefaultPolicy(QuantizationPolicy):
 
         if not full_protection:
             # Output sensitivity
-            if any(p in path for p in self._OUTPUT_SENSITIVE):
+            if tp.is_lm_head:
                 return _bits_fn(6)
 
             # Embed sensitivity
-            if any(p in path for p in self._EMBED_SENSITIVE):
+            if tp.is_embed_tokens:
                 return _bits_fn(base_bits + 2)
 
             # MoE high-parameter expert paths
-            if (
-                num_experts >= 512
-                and "gate_proj" in path
-                and "shared_expert" not in path
-            ):
+            if tp.is_switch_mlp and num_experts >= 512:
                 return _bits_fn(4)
 
             # Layer sensitivity
-            if (
-                layer_idx >= 0
-                and sensitive
-                and not any(p in path for p in ("switch_mlp", "experts"))
-            ):
+            if layer_idx is not None and sensitive and not tp.is_switch_mlp:
                 return _bits_fn(base_bits + 1)
 
             return True
 
         # Full protection paths
         # SSM output projections → 8-bit
-        if any(p in path for p in ("ssm_output", "ssm_out")):
+        if tp.is_ssm:
             return _bits_fn(8)
 
         # lora.2 → 8-bit
-        if "lora.2" in path:
+        if tp.is_layer and layer_idx is not None and layer_idx < 10:
             return _bits_fn(8)
 
         # Output sensitivity
-        if any(p in path for p in self._OUTPUT_SENSITIVE):
+        if tp.is_lm_head:
             return _bits_fn(6)
 
         # Cross-attn o_proj → 6-bit
-        if "cross_attn" in path and "o_proj" in path:
+        if tp.is_o_proj:
             return _bits_fn(6)
 
         # KV projection → 6-bit
-        if any(
-            p in path
-            for p in ("kv_a_proj_with_mqa", "kv_b_proj", "q_a_proj", "q_b_proj")
-        ):
+        if tp.is_mha:
             return _bits_fn(6)
 
         # o_proj (non-MoE) → 5-bit
-        if "o_proj" in path and "shared_expert" not in path and not is_moe:
+        if tp.is_o_proj and not is_moe:
             return _bits_fn(5)
 
         # Shared expert → 8-bit
-        if "shared_expert" in path and not path.endswith("shared_expert_gate"):
+        if tp.is_shared_expert:
             return _bits_fn(8)
 
         # High-parameter expert paths
         if num_experts >= 512:
-            if "gate_proj" in path and "shared_expert" not in path:
+            if tp.is_gate_proj:
                 return _bits_fn(4)
-            if "down_proj" in path and "shared_expert" not in path:
+            if tp.is_down_proj:
                 return _bits_fn(3)
 
         # Attention v_proj → sensitive → 6-bit, else True
-        if any(p in path for p in self._ATTN_V_SENSITIVE):
+        if tp.is_v:
             if sensitive:
                 return _bits_fn(6)
             return True
 
         # down_proj, w2, mlp.fc2, wo
-        if any(p in path for p in ("down_proj", "w2", "mlp.fc2", "wo")):
-            is_routed_expert = (
-                is_moe
-                and "shared_expert" not in path
-                and ("switch_mlp" in path or "experts" in path)
-            )
-            if is_routed_expert:
+        if tp.is_down_proj:
+            if tp.is_switch_mlp and is_moe:
                 if oq_level == 3.5:
                     return _bits_fn(4)
                 return True
@@ -466,19 +378,21 @@ class DefaultPolicy(QuantizationPolicy):
             return _bits_fn(5)
 
         # q_proj, k_proj → sensitive → 5-bit
-        if any(p in path for p in self._ATTN_Q_SENSITIVE) and sensitive:
-            return _bits_fn(5)
+        if tp.is_q or tp.is_k:
+            if sensitive:
+                return _bits_fn(5)
 
         # qkv_proj, in_proj_qkv, attn_qkv → sensitive → 5-bit
-        if any(p in path for p in self._QKV_SENSITIVE) and sensitive:
-            return _bits_fn(5)
+        if tp.is_mha:
+            if sensitive:
+                return _bits_fn(5)
 
         # in_proj_z/a/b, delta_net → 5-bit
-        if any(p in path for p in self._DELTA_SENSITIVE):
+        if tp.is_mlp:
             return _bits_fn(5)
 
         # mixer.in_proj, mixer.out_proj, x_proj, dt_proj → 5-bit
-        if any(p in path for p in self._MIXER_SENSITIVE):
+        if tp.is_mlp:
             return _bits_fn(5)
 
         return True

@@ -14,8 +14,6 @@ with composable, testable rule classes.
 
 from __future__ import annotations
 
-import re
-
 from abc import abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -90,23 +88,9 @@ class SSMStateRule:
 
     priority: int = -70
 
-    _SSM_SENSITIVE = (
-        "ssm_alpha",
-        "ssm_beta",
-        "a_log",
-        "time_decay",
-        "time_faaaa",
-    )
-
-    _dt_bias_pattern = re.compile(r"\bdt_bias\b")
-
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
-        path_lower = path.lower()
-        if any(p in path_lower for p in self._SSM_SENSITIVE):
-            return False
-        if self._dt_bias_pattern.search(path_lower):
-            return False
-        if path.endswith(".D"):
+        tp = TensorPath.from_string(path)
+        if tp.is_ssm:
             return False
         return None
 
@@ -117,15 +101,14 @@ class Qwen35HybridRule:
 
     priority: int = -65
 
-    _dt_bias_pattern = re.compile(r"\bdt_bias\b")
-
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
-        path_lower = path.lower()
-        if self._dt_bias_pattern.search(path_lower):
+        tp = TensorPath.from_string(path)
+        # SSM paths stay fp16 (discretization step sensitivity)
+        if tp.is_ssm:
             return False
-        if "conv1d" in path_lower and "linear_attn" in path_lower:
+        if tp.is_mlp:
             return {"bits": 8, "group_size": 64, "mode": "affine"}
-        if "linear_attn.out_proj" in path_lower:
+        if tp.is_mha:
             return {"bits": 5, "group_size": 64, "mode": "affine"}
         return None
 
@@ -136,21 +119,10 @@ class VisionTensorRule:
 
     priority: int = -50
 
-    _VISION_PATTERNS = (
-        "visual.",
-        "vision_",
-        "patch_embed",
-        "pos_embed",
-        "image_newline",
-        "multi_modal_projector",
-        "visual.merger",
-        "image_norm",
-        "temporal_embed",
-    )
-
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
-        if any(p in path for p in self._VISION_PATTERNS):
-            return False
+        if tp := TensorPath.from_string(path):
+            if tp.is_vision:
+                return False
         return None
 
 
@@ -160,10 +132,9 @@ class AudioTensorRule:
 
     priority: int = -45
 
-    _AUDIO_PATTERNS = ("audio_tower",)
-
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
-        if any(p in path for p in self._AUDIO_PATTERNS):
+        tp = TensorPath.from_string(path)
+        if tp.is_audio:
             return False
         return None
 
@@ -187,8 +158,6 @@ class BudgetPlanRule:
 
     priority: int = -35
 
-    _SSM_OUTPUT_PATTERNS = ("ssm_output", "ssm_out")
-
     def evaluate(self, path: str, config: dict, oq_level: float) -> bool | dict | None:
         if not config.get("_oq_use_budget_plan"):
             return None
@@ -196,9 +165,8 @@ class BudgetPlanRule:
         boost_map = config.get("_oq_boost_map")
         if boost_map is not None and path in boost_map:
             return None  # Let BoostMapRule handle this
-        if any(p in path for p in self._SSM_OUTPUT_PATTERNS):
-            return {"bits": 8, "group_size": 64, "mode": "affine"}
-        if "lora.2" in path:
+        tp = TensorPath.from_string(path)
+        if tp.is_ssm:
             return {"bits": 8, "group_size": 64, "mode": "affine"}
         return True  # budget plan active — use default bits
 

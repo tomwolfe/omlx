@@ -251,7 +251,7 @@ class TestSSEEventFormat:
             ),
         )
 
-        await _send_event(
+        _send_event(
             run,
             {
                 "type": "progress",
@@ -289,7 +289,7 @@ class TestSSEEventFormat:
             "ttft_ms": 45.2,
             "gen_tps": 81.3,
         }
-        await _send_event(run, {"type": "result", "data": result_data})
+        _send_event(run, {"type": "result", "data": result_data})
 
         assert len(run.events) == 1
         event = run.events[0]
